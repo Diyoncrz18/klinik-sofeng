@@ -1,26 +1,21 @@
-@import "tailwindcss";
+/* Tailwind v4 is intentionally omitted here to prevent preflight conflicts with the injected v3 CSS. */
+
+/* 
+ * This project uses two layers of Tailwind:
+ * 1. Tailwind v4 for any native React components (here)
+ * 2. Tailwind v3 (injected via HTML) for the core dashboard UI
+ *
+ * To avoid CSS conflicts, we do NOT define global styles or @theme overrides here 
+ * that would break the injected `dokter.html` payload.
+ */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #FFF9F0;
+  --foreground: #26383d;
 }
 
 body {
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
