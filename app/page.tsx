@@ -1,65 +1,128 @@
-import Image from "next/image";
+import { PatientBookingForm } from "./components/patient/PatientBookingForm";
+import { PatientHero } from "./components/patient/PatientHero";
+import { ScheduleRecommendations } from "./components/patient/ScheduleRecommendations";
+import type { ScheduleRecommendation } from "./components/patient/types";
+import {
+  scheduleRecommendations,
+  serviceOptions,
+} from "./components/patient/patient-data";
 
-export default function Home() {
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+
+export const dynamic = "force-dynamic";
+
+type ScheduleApiItem = {
+  scheduleDate: string;
+  startTime: string;
+  endTime: string;
+};
+
+type SchedulesApiResponse = {
+  schedules?: ScheduleApiItem[];
+};
+
+function normalizeTimeLabel(value: string): string {
+  const [hour = "00", minute = "00"] = String(value).split(":");
+  return `${hour}.${minute}`;
+}
+
+function normalizeTimeInputValue(value: string): string {
+  const [hour = "00", minute = "00"] = String(value).split(":");
+  return `${hour}:${minute}`;
+}
+
+function normalizeDateInputValue(value: string): string {
+  return String(value).split("T")[0] || String(value);
+}
+
+function formatDateLabel(value: string): string {
+  const [year, month, day] = String(value)
+    .split("-")
+    .map((part) => Number(part));
+
+  if (!year || !month || !day) {
+    return String(value);
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const formatted = new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+
+  return `${formatted.charAt(0).toUpperCase()}${formatted.slice(1)}`;
+}
+
+function mapScheduleToRecommendation(
+  schedule: ScheduleApiItem
+): ScheduleRecommendation {
+  return {
+    day: formatDateLabel(schedule.scheduleDate),
+    time: `${normalizeTimeLabel(schedule.startTime)} - ${normalizeTimeLabel(
+      schedule.endTime
+    )}`,
+    visitDate: normalizeDateInputValue(schedule.scheduleDate),
+    visitTime: normalizeTimeInputValue(schedule.startTime),
+  };
+}
+
+async function getScheduleRecommendations(): Promise<ScheduleRecommendation[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/schedules?limit=3`, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gagal memuat jadwal. Status: ${response.status}`);
+    }
+
+    const responseBody = (await response.json()) as SchedulesApiResponse | null;
+
+    if (!Array.isArray(responseBody?.schedules)) {
+      throw new Error("Format response jadwal tidak valid.");
+    }
+
+    return responseBody.schedules.map(mapScheduleToRecommendation);
+  } catch (error) {
+    console.error("Fallback ke data lokal jadwal:", error);
+    return scheduleRecommendations;
+  }
+}
+
+export default async function Home() {
+  const recommendations = await getScheduleRecommendations();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      <header className="site-header">
+        <div className="site-header-inner">
+          <p className="site-brand">Klinik Sofeng</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+      </header>
+
+      <main className="patient-shell">
+        <PatientHero />
+
+        <section
+          className="patient-workspace"
+          aria-label="Area booking dan rekomendasi jadwal"
+        >
+          <PatientBookingForm serviceOptions={serviceOptions} />
+          <ScheduleRecommendations recommendations={recommendations} />
+        </section>
       </main>
-    </div>
+
+      <footer className="site-footer">
+        <div className="site-footer-inner">
+          <p>Klinik Sofeng</p>
+          <p>Jln. Arnold Mononutu Airmadidi Bawah</p>
+          <p>WhatsApp: 0895323941730</p>
+        </div>
+      </footer>
+    </>
   );
 }
