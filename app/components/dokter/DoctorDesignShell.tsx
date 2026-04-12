@@ -1,5 +1,21 @@
 "use client";
 
+/**
+ * DoctorDesignShell
+ * ─────────────────
+ * Client component yang mengelola lifecycle halaman dokter:
+ * 1. Mene-inject body CSS classes dari dokter.html
+ * 2. Mencegah hash anchor navigation
+ * 3. Mendaftarkan window.__doctorDesignNavigate ke Next.js router
+ * 4. Mene-inject script runtime (content switcher + routing) sekali saat bootstrap
+ * 5. Mengaplikasikan route yang benar saat navigasi terjadi
+ *
+ * Perubahan (2026-04-12):
+ * - DIHAPUS: Lucide CDN (unpkg.com) — SVG sudah inlined, tidak perlu createIcons()
+ * - BARU: Routing runtime dipindah ke doctorRuntimeScript.ts (lebih bersih)
+ * - Sidebar dipindah ke DoctorSidebar.tsx (tidak dirender di sini lagi — dirender sebagai sibling)
+ */
+
 import { startTransition, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -8,10 +24,11 @@ import {
   doctorDesignPageIdByPathname,
   doctorDesignPathByPageId,
 } from "./doctorDesignRouting";
+import { buildDoctorRuntimeScript } from "./doctorRuntimeScript";
+import DoctorSidebar from "./DoctorSidebar";
 
 declare global {
   interface Window {
-    lucide?: { createIcons: () => void };
     handleResize?: () => void;
     __doctorDesignBootstrapped?: boolean;
     __doctorDesignApplyRoute?: (historyMode?: "none" | "push" | "replace") => void;
@@ -22,43 +39,6 @@ declare global {
     __doctorDesignHandlePopState?: () => void;
     __doctorDesignHandleHashChange?: () => void;
   }
-}
-
-const LUCIDE_SCRIPT_SRC = "https://unpkg.com/lucide@1.7.0/dist/umd/lucide.js";
-
-function ensureLucideScript() {
-  return new Promise<void>((resolve, reject) => {
-    if (window.lucide?.createIcons) {
-      resolve();
-      return;
-    }
-
-    const existingScript = document.querySelector<HTMLScriptElement>(
-      'script[data-doctor-design-lucide="true"]',
-    );
-
-    if (existingScript) {
-      existingScript.addEventListener("load", () => resolve(), { once: true });
-      existingScript.addEventListener(
-        "error",
-        () => reject(new Error("Failed to load Lucide runtime.")),
-        { once: true },
-      );
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = LUCIDE_SCRIPT_SRC;
-    script.async = true;
-    script.dataset.doctorDesignLucide = "true";
-    script.addEventListener("load", () => resolve(), { once: true });
-    script.addEventListener(
-      "error",
-      () => reject(new Error("Failed to load Lucide runtime.")),
-      { once: true },
-    );
-    document.body.appendChild(script);
-  });
 }
 
 interface DoctorDesignShellProps {
@@ -79,13 +59,12 @@ export default function DoctorDesignShell({
   const pathname = usePathname();
   const router = useRouter();
 
+  // ── 1. Body class dari dokter.html (bg-gray-50, dll.) ─────────────────
   useEffect(() => {
     const bodyClasses = bodyClassName.split(/\s+/).filter(Boolean);
-
     if (bodyClasses.length > 0) {
       document.body.classList.add(...bodyClasses);
     }
-
     return () => {
       if (bodyClasses.length > 0) {
         document.body.classList.remove(...bodyClasses);
@@ -93,39 +72,28 @@ export default function DoctorDesignShell({
     };
   }, [bodyClassName]);
 
+  // ── 2. Cegah hash anchor navigation (href="#pageId") ──────────────────
   useEffect(() => {
     const preventHashAnchors = (event: MouseEvent) => {
-      const target = event.target;
-
-      if (!(target instanceof Element)) {
-        return;
-      }
-
-      const link = target.closest<HTMLAnchorElement>('a[href^="#"]');
-
-      if (!link) {
-        return;
-      }
-
+      if (!(event.target instanceof Element)) return;
+      const link = event.target.closest<HTMLAnchorElement>('a[href^="#"]');
+      if (!link) return;
       event.preventDefault();
     };
 
     document.addEventListener("click", preventHashAnchors, true);
-
-    return () => {
-      document.removeEventListener("click", preventHashAnchors, true);
-    };
+    return () => document.removeEventListener("click", preventHashAnchors, true);
   }, []);
 
+  // ── 3. Daftarkan window.__doctorDesignNavigate ke Next.js router ───────
   useEffect(() => {
     window.__doctorDesignNavigate = (nextPathname, mode = "push") => {
       startTransition(() => {
         if (mode === "replace") {
           router.replace(nextPathname, { scroll: false });
-          return;
+        } else {
+          router.push(nextPathname, { scroll: false });
         }
-
-        router.push(nextPathname, { scroll: false });
       });
     };
 
@@ -134,196 +102,86 @@ export default function DoctorDesignShell({
     };
   }, [router]);
 
+  // ── 4. Bootstrap: inject script runtime SEKALI ────────────────────────
+  //    Catatan: SVG sudah inlined di HTML dan di DoctorSidebar.tsx,
+  //    sehingga Lucide CDN (createIcons) tidak diperlukan lagi.
   useEffect(() => {
     let cancelled = false;
 
-    const routingRuntime = `
-const doctorDesignPathByPageId = ${JSON.stringify(doctorDesignPathByPageId)};
-const doctorDesignNavPageByPageId = ${JSON.stringify(doctorDesignNavPageByPageId)};
-const doctorDesignPageIdByPathname = ${JSON.stringify(doctorDesignPageIdByPathname)};
-
-function normalizeDoctorDesignPathname(pathname) {
-  if (!pathname) {
-    return doctorDesignPathByPageId.dashboard;
-  }
-
-  return pathname.endsWith('/') && pathname !== '/' ? pathname.slice(0, -1) : pathname;
-}
-
-function resolveDoctorDesignPageId() {
-  var pathname = normalizeDoctorDesignPathname(window.location.pathname || '');
-  var pageIdFromPathname = doctorDesignPageIdByPathname[pathname];
-
-  if (pageIdFromPathname) {
-    return pageIdFromPathname;
-  }
-
-  var hashPageId = window.location.hash ? window.location.hash.slice(1) : '';
-
-  if (doctorDesignPathByPageId[hashPageId]) {
-    return hashPageId;
-  }
-
-  return window.__doctorDesignInitialPageId || 'dashboard';
-}
-
-function syncDoctorDesignRoute(pageId, historyMode) {
-  var nextPathname = doctorDesignPathByPageId[pageId] || doctorDesignPathByPageId.dashboard;
-  var currentPathname = normalizeDoctorDesignPathname(window.location.pathname || '');
-
-  if (!nextPathname) {
-    return;
-  }
-
-  if (currentPathname === nextPathname && !window.location.hash) {
-    return;
-  }
-
-  if (currentPathname === nextPathname && window.location.hash) {
-    if (window.__doctorDesignNavigate) {
-      window.__doctorDesignNavigate(nextPathname, 'replace');
-      return;
-    }
-
-    window.history.replaceState(null, '', nextPathname);
-    return;
-  }
-
-  if (window.__doctorDesignNavigate) {
-    window.__doctorDesignNavigate(nextPathname, historyMode === 'replace' ? 'replace' : 'push');
-    return;
-  }
-
-  if (historyMode === 'replace') {
-    window.history.replaceState(null, '', nextPathname);
-    return;
-  }
-
-  window.history.pushState(null, '', nextPathname);
-}
-
-if (typeof setActive === 'function' && !window.__doctorDesignSetActiveWrapped) {
-  const originalSetActive = setActive;
-
-  setActive = function (el, pageId) {
-    originalSetActive(el, pageId);
-
-    var historyMode = window.__doctorDesignSetActiveHistoryMode ?? 'push';
-
-    if (historyMode === 'none') {
-      return;
-    }
-
-    syncDoctorDesignRoute(pageId, historyMode);
-  };
-
-  window.__doctorDesignSetActiveWrapped = true;
-}
-
-window.__doctorDesignApplyRoute = function (historyMode) {
-  var pageId = resolveDoctorDesignPageId();
-  var navPageId = doctorDesignNavPageByPageId[pageId] || pageId;
-  var navEl = document.getElementById('nav-' + navPageId);
-
-  window.__doctorDesignSetActiveHistoryMode = historyMode || 'none';
-
-  if (navEl && navEl.classList.contains('menu-item')) {
-    setActive(navEl, pageId);
-  } else {
-    setActive(null, pageId);
-  }
-
-  window.__doctorDesignSetActiveHistoryMode = null;
-
-  if (window.location.hash && doctorDesignPathByPageId[pageId]) {
-    syncDoctorDesignRoute(pageId, 'replace');
-  }
-};
-
-if (!window.__doctorDesignHandlePopState) {
-  window.__doctorDesignHandlePopState = function () {
-    window.__doctorDesignApplyRoute && window.__doctorDesignApplyRoute('none');
-  };
-
-  window.addEventListener('popstate', window.__doctorDesignHandlePopState);
-}
-
-if (!window.__doctorDesignHandleHashChange) {
-  window.__doctorDesignHandleHashChange = function () {
-    window.__doctorDesignApplyRoute && window.__doctorDesignApplyRoute('replace');
-  };
-
-  window.addEventListener('hashchange', window.__doctorDesignHandleHashChange);
-}
-
-window.__doctorDesignBootstrapped = true;
-window.__doctorDesignApplyRoute('none');
-`;
-
     window.__doctorDesignInitialPageId = initialPageId;
 
-    ensureLucideScript()
-      .then(() => {
-        if (cancelled) {
-          return;
-        }
+    // Bangun routing runtime dari factory function (doctorRuntimeScript.ts)
+    const routingRuntime = buildDoctorRuntimeScript({
+      pathByPageId: doctorDesignPathByPageId as Record<string, string>,
+      navPageByPageId: doctorDesignNavPageByPageId as Record<string, string>,
+      pageIdByPathname: doctorDesignPageIdByPathname,
+    });
 
-        if (!window.__doctorDesignBootstrapped) {
-          document
-            .querySelectorAll('script[data-doctor-design-runtime="true"]')
-            .forEach((node) => node.remove());
+    if (!window.__doctorDesignBootstrapped) {
+      // Hapus script runtime lama jika ada
+      document
+        .querySelectorAll('script[data-doctor-design-runtime="true"]')
+        .forEach((node) => node.remove());
 
-          const runtimeScript = document.createElement("script");
-          runtimeScript.dataset.doctorDesignRuntime = "true";
-          runtimeScript.text = `${scriptContent}\n${routingRuntime}`;
-          document.body.appendChild(runtimeScript);
-          return;
-        }
-
-        window.__doctorDesignApplyRoute?.("none");
-        window.lucide?.createIcons();
-      })
-      .catch((error) => {
-        console.error("Doctor design runtime failed to initialize.", error);
-      });
+      const runtimeScript = document.createElement("script");
+      runtimeScript.dataset.doctorDesignRuntime = "true";
+      // Script content dari dokter.html (setActive, toggleSidebar, dll.)
+      // digabung dengan routing runtime dari doctorRuntimeScript.ts
+      runtimeScript.text = `${scriptContent}\n${routingRuntime}`;
+      document.body.appendChild(runtimeScript);
+    } else if (!cancelled) {
+      // Sudah bootstrap — hanya apply route
+      window.__doctorDesignApplyRoute?.("none");
+    }
 
     return () => {
       cancelled = true;
 
-      // DO NOT reset window.__doctorDesignBootstrapped or remove the script node.
-      // If we remove the script node and re-inject it, global const/let variables 
-      // from the injected HTML will throw SyntaxError on redeclaration.
-      
+      // Bersihkan browser history listeners (akan didaftarkan ulang saat mount berikutnya)
       if (window.__doctorDesignHandlePopState) {
         window.removeEventListener("popstate", window.__doctorDesignHandlePopState);
       }
-
       if (window.__doctorDesignHandleHashChange) {
         window.removeEventListener("hashchange", window.__doctorDesignHandleHashChange);
       }
-
       if (typeof window.handleResize === "function") {
         window.removeEventListener("resize", window.handleResize);
       }
 
-      // Re-attach handlers on next mount by tricking the logic, but don't delete bootstrapped flag
       delete window.__doctorDesignHandlePopState;
       delete window.__doctorDesignHandleHashChange;
-      
-      // We don't delete __doctorDesignApplyRoute or bootstrapped
+      // Sengaja TIDAK delete __doctorDesignBootstrapped dan __doctorDesignApplyRoute
+      // karena akan menyebabkan SyntaxError (redeclaration of const/let dari scriptContent)
     };
-    // scriptContent is static because every dokter route uses the same source HTML runtime.
+
+    // scriptContent statis — semua route dokter menggunakan HTML runtime yang sama
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── 5. Terapkan route dan restore sidebar saat navigasi ───────────────
   useEffect(() => {
     window.__doctorDesignInitialPageId = initialPageId;
     window.__doctorDesignApplyRoute?.("none");
   }, [initialPageId, pathname]);
 
+  // Fix: Restore sidebar setelah Next.js routing
+  // Sidebar mulai dengan transform: translateX(-100%) sebagai initial state.
+  // handleResize() dari script runtime mengatur posisi yang benar.
+  useEffect(() => {
+    if (typeof window.handleResize === "function") {
+      window.handleResize();
+    }
+  }, [pathname]);
+
   return (
     <>
+      {/* CSS dari dokter.html (purge Tailwind per halaman — Poin 3) */}
       <style dangerouslySetInnerHTML={{ __html: styles }} />
+
+      {/* Sidebar — komponen tersendiri di DoctorSidebar.tsx */}
+      <DoctorSidebar />
+
+      {/* Konten halaman dari dokter.html */}
       <div
         data-doctor-design-root
         suppressHydrationWarning
