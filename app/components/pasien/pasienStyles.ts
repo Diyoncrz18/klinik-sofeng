@@ -166,7 +166,7 @@ export const PASIEN_STYLES = `
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     padding-bottom: 16px;
-    padding-top: 40px;
+    padding-top: 16px;
     margin-left: -18px;
     margin-right: -18px;
     padding-left: 18px;
