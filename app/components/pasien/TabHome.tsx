@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useEffect } from "react";
+
 /**
  * TabHome — Halaman Dashboard Pasien (Redesigned)
  * ────────────────────────────────────────────────
@@ -12,10 +14,11 @@
  * - Kunjungan terakhir dengan timeline
  */
 
-import type { TabSwitcher } from "./PasienShell";
+import type { TabSwitcher, OpenView } from "./PasienShell";
 
 interface TabHomeProps {
   switchTab: TabSwitcher;
+  openView?: OpenView;
 }
 
 // Fungsi greeting berdasarkan waktu
@@ -27,8 +30,12 @@ function getGreeting() {
   return "Selamat Malam";
 }
 
-export default function TabHome({ switchTab }: TabHomeProps) {
-  const greeting = getGreeting();
+export default function TabHome({ switchTab, openView }: TabHomeProps) {
+  const [greeting, setGreeting] = useState("Selamat Datang");
+
+  useEffect(() => {
+    setGreeting(getGreeting());
+  }, []);
 
   return (
     <div style={{ paddingBottom: 8 }}>
@@ -94,6 +101,7 @@ export default function TabHome({ switchTab }: TabHomeProps) {
         {/* Right: Notification bell */}
         <button
           id="btn-notifikasi"
+          onClick={() => openView?.("notifikasi")}
           aria-label="Notifikasi (1 baru)"
           style={{
             position: "relative",
@@ -321,6 +329,12 @@ export default function TabHome({ switchTab }: TabHomeProps) {
                 onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
                 onTouchStart={(e) => (e.currentTarget.style.transform = "scale(0.93)")}
                 onTouchEnd={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                onClick={() => {
+                  if (action.id === "buat-janji") openView?.("buat-janji");
+                  else if (action.id === "konsultasi") openView?.("konsultasi-online");
+                  else if (action.id === "riwayat") switchTab("riwayat");
+                  else if (action.id === "lokasi") openView?.("lokasi-klinik");
+                }}
               >
                 {/* Icon box */}
                 <div style={{
