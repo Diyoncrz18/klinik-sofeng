@@ -108,7 +108,7 @@ interface RecordItem {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function TabRiwayat() {
+export default function TabRiwayat({ openView }: { openView?: (view: any) => void }) {
   const [activeFilter, setActiveFilter] = useState<RecordFilter>("Semua");
 
   const filters: { key: RecordFilter; count?: number }[] = [
@@ -138,13 +138,13 @@ export default function TabRiwayat() {
           ═══════════════════════════════════════ */}
       <div className="sticky-tab-header">
         {/* Title + search */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <div>
-            <h2 style={{ fontSize: 22, fontWeight: 900, color: "#111827", letterSpacing: "-0.03em", lineHeight: 1 }}>
-              Rekam Medis
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ fontSize: 17, fontWeight: 900, color: "#111827", letterSpacing: "-0.02em" }}>
+              Riwayat
             </h2>
-            <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontWeight: 500 }}>
-              Total {filtered.length} catatan tindakan
+            <p style={{ fontSize: 11, color: "#6b7280", marginTop: 2, fontWeight: 500 }}>
+              Rekam Medis & Penagihan
             </p>
           </div>
           <button
@@ -169,7 +169,7 @@ export default function TabRiwayat() {
         <div style={{
           display: "flex", alignItems: "center", gap: 8,
           background: "#f8fafc", borderRadius: 10, padding: "8px 12px",
-          border: "1px solid #f1f5f9", marginBottom: 14,
+          border: "1px solid #f1f5f9", marginBottom: 14, marginTop: 14,
         }}>
           <div style={{
             width: 8, height: 8, borderRadius: "50%",
@@ -235,7 +235,7 @@ export default function TabRiwayat() {
           TIMELINE LIST
           ═══════════════════════════════════════ */}
       {filtered.length === 0 ? (
-        <EmptyRiwayat filter={activeFilter} />
+        <EmptyRiwayat filter={activeFilter} openView={openView} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 0, paddingTop: 4 }}>
           {filtered.map((record, index) => (
@@ -243,6 +243,7 @@ export default function TabRiwayat() {
               key={record.id}
               record={record}
               isLast={index === filtered.length - 1}
+              openView={openView}
             />
           ))}
         </div>
@@ -276,7 +277,7 @@ export default function TabRiwayat() {
 
 /* ─── Timeline Item ──────────────────────────────────────────────────────── */
 
-function TimelineItem({ record, isLast }: { record: RecordItem; isLast: boolean }) {
+function TimelineItem({ record, isLast, openView }: { record: RecordItem; isLast: boolean; openView?: (view: string) => void }) {
   return (
     <div style={{ display: "flex", gap: 12 }}>
       {/* Timeline column */}
@@ -380,6 +381,7 @@ function TimelineItem({ record, isLast }: { record: RecordItem; isLast: boolean 
             </div>
 
             <button
+              onClick={() => openView?.("detail-riwayat")}
               aria-label={`Detail ${record.title}`}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
@@ -404,7 +406,7 @@ function TimelineItem({ record, isLast }: { record: RecordItem; isLast: boolean 
 
 /* ─── Empty State ────────────────────────────────────────────────────────── */
 
-function EmptyRiwayat({ filter }: { filter: RecordFilter }) {
+function EmptyRiwayat({ filter, openView }: { filter: RecordFilter; openView?: any }) {
   const config: Record<RecordFilter, { emoji: string; title: string; desc: string }> = {
     Semua: { emoji: "📋", title: "Belum Ada Catatan", desc: "Rekam medis Anda akan muncul setelah kunjungan pertama." },
     Tindakan: { emoji: "🦷", title: "Belum Ada Tindakan", desc: "Tindakan yang sudah dilakukan akan tersimpan di sini." },

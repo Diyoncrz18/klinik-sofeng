@@ -12,6 +12,7 @@
  */
 
 import { useState } from "react";
+import type { OpenView } from "./PasienShell";
 
 type FilterStatus = "Akan Datang" | "Selesai" | "Dibatalkan";
 
@@ -64,7 +65,7 @@ interface AppointmentData {
   type: "upcoming" | "completed";
 }
 
-export default function TabJadwal() {
+export default function TabJadwal({ openView }: { openView?: OpenView }) {
   const [activeFilter, setActiveFilter] = useState<FilterStatus>("Akan Datang");
 
   const filters: { key: FilterStatus; count?: number }[] = [
@@ -107,6 +108,7 @@ export default function TabJadwal() {
               fontFamily: "inherit",
               transition: "transform 0.15s ease, box-shadow 0.15s ease",
             }}
+            onClick={() => openView?.("buat-janji")}
             onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.95)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(42,107,155,0.2)"; }}
             onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 14px rgba(42,107,155,0.35)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 14px rgba(42,107,155,0.35)"; }}
@@ -170,10 +172,10 @@ export default function TabJadwal() {
           ═══════════════════════════════════════ */}
       <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 4 }}>
         {visible.length === 0 ? (
-          <EmptyJadwal activeFilter={activeFilter} />
+          <EmptyJadwal activeFilter={activeFilter} openView={openView} />
         ) : (
           visible.map((apt) => (
-            <AppointmentCard key={apt.id} data={apt} />
+            <AppointmentCard key={apt.id} data={apt} openView={openView} />
           ))
         )}
       </div>
@@ -184,7 +186,7 @@ export default function TabJadwal() {
 
 /* ─── Appointment Card ───────────────────────────────────────────────────── */
 
-function AppointmentCard({ data }: { data: AppointmentData }) {
+function AppointmentCard({ data, openView }: { data: AppointmentData; openView?: OpenView }) {
   const isUpcoming = data.type === "upcoming";
 
   return (
@@ -291,6 +293,7 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
         {isUpcoming && (
           <div style={{ display: "flex", gap: 8 }}>
             <button
+              onClick={() => openView?.("jadwal-ulang")}
               style={{
                 flex: 1, padding: "11px 0",
                 background: "#fff", border: "1.5px solid #e5e7eb",
@@ -304,6 +307,7 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
               Jadwal Ulang
             </button>
             <button
+              onClick={() => openView?.("lihat-tiket")}
               style={{
                 flex: 2, padding: "11px 0",
                 background: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
@@ -336,6 +340,7 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
               <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: 4, lineHeight: "14px" }}>5/5</span>
             </div>
             <button
+              onClick={() => openView?.("detail-riwayat")}
               style={{
                 fontSize: 11, fontWeight: 700, color: "#2A6B9B",
                 background: "#eff6ff", border: "none", borderRadius: 8,
@@ -379,7 +384,7 @@ function InfoChip({
 
 /* ─── Empty State ────────────────────────────────────────────────────────── */
 
-function EmptyJadwal({ activeFilter }: { activeFilter: FilterStatus }) {
+function EmptyJadwal({ activeFilter, openView }: { activeFilter: FilterStatus; openView?: OpenView }) {
   const config = {
     "Akan Datang": {
       color: "#2A6B9B", bg: "#eff6ff", border: "#bfdbfe",
@@ -414,13 +419,16 @@ function EmptyJadwal({ activeFilter }: { activeFilter: FilterStatus }) {
       <p style={{ fontSize: 15, fontWeight: 800, color: "#1f2937", marginBottom: 6 }}>{c.title}</p>
       <p style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6, marginBottom: 20, maxWidth: 240 }}>{c.desc}</p>
       {activeFilter === "Akan Datang" && (
-        <button style={{
-          padding: "10px 24px",
-          background: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
-          color: "#fff", border: "none", borderRadius: 12,
-          fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
-          boxShadow: "0 4px 14px rgba(42,107,155,0.3)",
-        }}>
+        <button
+          onClick={() => openView?.("buat-janji")}
+          style={{
+            padding: "10px 24px",
+            background: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
+            color: "#fff", border: "none", borderRadius: 12,
+            fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+            boxShadow: "0 4px 14px rgba(42,107,155,0.3)",
+          }}
+        >
           Buat Janji Sekarang
         </button>
       )}
