@@ -1,26 +1,35 @@
+"use client";
+
 /**
- * PasienBottomNav — Bottom Navigation Bar
- * ────────────────────────────────────────
- * Glassmorphism bottom nav dengan 4 tab: Home, Jadwal, Riwayat, Profil
- * Konsisten dengan styling dokter (biru #2A6B9B)
+ * PasienBottomNav — Bottom Navigation Bar (URL-based)
+ * ─────────────────────────────────────────────────────
+ * Glassmorphism bottom nav dengan 4 tab: Home, Jadwal, Riwayat, Profil.
+ * Sumber tab aktif: URL pathname via `usePathname()`.
+ * Konsisten dengan styling dokter (biru #2A6B9B).
  */
 
-import type { TabId, TabSwitcher } from "./PasienShell";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
-interface PasienBottomNavProps {
-  activeTab: TabId;
-  switchTab: TabSwitcher;
-}
+import {
+  PASIEN_PATHS,
+  getActivePasienTab,
+  type PasienTabId,
+} from "./pasienRouting";
 
-const NAV_ITEMS: {
-  id: TabId;
+interface NavItem {
+  id: PasienTabId;
   label: string;
+  href: string;
   badge?: string;
   icon: (active: boolean) => React.ReactNode;
-}[] = [
+}
+
+const NAV_ITEMS: NavItem[] = [
   {
     id: "home",
     label: "Home",
+    href: PASIEN_PATHS.home,
     icon: (active) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
         stroke={active ? "#2A6B9B" : "#9ca3af"}
@@ -33,6 +42,7 @@ const NAV_ITEMS: {
   {
     id: "jadwal",
     label: "Jadwal",
+    href: PASIEN_PATHS.jadwal,
     badge: "1",
     icon: (active) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
@@ -47,6 +57,7 @@ const NAV_ITEMS: {
   {
     id: "riwayat",
     label: "Riwayat",
+    href: PASIEN_PATHS.riwayat,
     icon: (active) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
         stroke={active ? "#2A6B9B" : "#9ca3af"}
@@ -60,6 +71,7 @@ const NAV_ITEMS: {
   {
     id: "profil",
     label: "Profil",
+    href: PASIEN_PATHS.profil,
     icon: (active) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
         stroke={active ? "#2A6B9B" : "#9ca3af"}
@@ -70,27 +82,28 @@ const NAV_ITEMS: {
   },
 ];
 
-export default function PasienBottomNav({ activeTab, switchTab }: PasienBottomNavProps) {
+export default function PasienBottomNav() {
+  const pathname = usePathname() || "";
+  const activeTab = getActivePasienTab(pathname);
+
   return (
-    <nav
-      className="pasien-bottom-nav"
-      aria-label="Navigasi bawah aplikasi pasien"
-    >
+    <nav className="pasien-bottom-nav" aria-label="Navigasi bawah aplikasi pasien">
       <div style={{ display: "flex", justifyContent: "space-around", alignItems: "center", padding: "12px 8px" }}>
         {NAV_ITEMS.map((item) => {
           const isActive = activeTab === item.id;
           return (
-            <button
+            <Link
               key={item.id}
               id={`nav-pasien-${item.id}`}
-              onClick={() => switchTab(item.id)}
+              href={item.href}
+              prefetch
               aria-current={isActive ? "page" : undefined}
               aria-label={item.label}
               className={`nav-item${isActive ? " nav-active" : ""}`}
               style={{
                 display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
                 width: 64, gap: 6, background: "none", border: "none", cursor: "pointer",
-                fontFamily: "inherit", transition: "all 0.2s ease",
+                fontFamily: "inherit", textDecoration: "none", transition: "all 0.2s ease",
               }}
             >
               {/* Icon wrapper (with optional badge) */}
@@ -129,7 +142,7 @@ export default function PasienBottomNav({ activeTab, switchTab }: PasienBottomNa
 
               {/* Active dot indicator */}
               <div className="nav-indicator" />
-            </button>
+            </Link>
           );
         })}
       </div>

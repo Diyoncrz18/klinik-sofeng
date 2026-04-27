@@ -1,3 +1,5 @@
+import PasienAppShell from "@/app/components/pasien/PasienAppShell";
+
 export const metadata = {
   title: "Aplikasi Pasien — Klinik Gigi",
   description: "Portal pasien Klinik Gigi untuk melihat jadwal, rekam medis, dan profil.",
@@ -6,5 +8,5 @@ export const metadata = {
 export default function PasienLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  return children;
+  return <PasienAppShell>{children}</PasienAppShell>;
 }

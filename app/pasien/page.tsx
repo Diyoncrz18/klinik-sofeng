@@ -1,5 +1,5 @@
-import PasienShell from "@/app/components/pasien/PasienShell";
+import TabHome from "@/app/components/pasien/TabHome";
 
-export default function PasienPage() {
-  return <PasienShell />;
+export default function PasienHomePage() {
+  return <TabHome />;
 }

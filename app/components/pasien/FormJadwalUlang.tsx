@@ -8,7 +8,7 @@
  * dengan FormBuatJanji.
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface Props {
   onBack: () => void;
@@ -35,16 +35,12 @@ function getDays() {
 }
 
 export default function FormJadwalUlang({ onBack, onSuccess }: Props) {
-  const [days, setDays] = useState<{ label: string; sub: string; full: string; date: Date }[]>([]);
+  const [days] = useState(getDays);
   
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [selectedWaktu, setSelectedWaktu] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-
-  useEffect(() => {
-    setDays(getDays());
-  }, []);
 
   const canNext = selectedDay !== null && selectedWaktu !== null;
 

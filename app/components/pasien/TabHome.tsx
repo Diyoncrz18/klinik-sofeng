@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 /**
- * TabHome — Halaman Dashboard Pasien (Redesigned)
- * ────────────────────────────────────────────────
+ * TabHome — Halaman Dashboard Pasien (URL-based)
+ * ────────────────────────────────────────────
  * Layout premium mobile app dengan:
  * - Header sticky glassmorphism + greeting dinamis
  * - Hero card jadwal terdekat dengan gradient rich
@@ -12,14 +13,12 @@ import { useState, useEffect } from "react";
  * - Banner promo elegan
  * - Statistik kesehatan ringkas
  * - Kunjungan terakhir dengan timeline
+ *
+ * Navigasi memakai URL routing (Next.js router) lewat helper di
+ * `pasienRouting.ts`, bukan lagi state local di PasienShell.
  */
 
-import type { TabSwitcher, OpenView } from "./PasienShell";
-
-interface TabHomeProps {
-  switchTab: TabSwitcher;
-  openView?: OpenView;
-}
+import { PASIEN_PATHS } from "./pasienRouting";
 
 // Fungsi greeting berdasarkan waktu
 function getGreeting() {
@@ -30,12 +29,9 @@ function getGreeting() {
   return "Selamat Malam";
 }
 
-export default function TabHome({ switchTab, openView }: TabHomeProps) {
-  const [greeting, setGreeting] = useState("Selamat Datang");
-
-  useEffect(() => {
-    setGreeting(getGreeting());
-  }, []);
+export default function TabHome() {
+  const router = useRouter();
+  const [greeting] = useState(getGreeting);
 
   return (
     <div style={{ paddingBottom: 8 }}>
@@ -66,7 +62,7 @@ export default function TabHome({ switchTab, openView }: TabHomeProps) {
         {/* Left: Avatar + Greeting */}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button
-            onClick={() => switchTab("profil")}
+            onClick={() => router.push(PASIEN_PATHS.profil)}
             aria-label="Buka profil Ahmad Surya"
             style={{ position: "relative", cursor: "pointer", background: "none", border: "none", padding: 0, flexShrink: 0 }}
           >
@@ -101,7 +97,7 @@ export default function TabHome({ switchTab, openView }: TabHomeProps) {
         {/* Right: Notification bell */}
         <button
           id="btn-notifikasi"
-          onClick={() => openView?.("notifikasi")}
+          onClick={() => router.push(PASIEN_PATHS.notifikasi)}
           aria-label="Notifikasi (1 baru)"
           style={{
             position: "relative",
@@ -330,10 +326,10 @@ export default function TabHome({ switchTab, openView }: TabHomeProps) {
                 onTouchStart={(e) => (e.currentTarget.style.transform = "scale(0.93)")}
                 onTouchEnd={(e) => (e.currentTarget.style.transform = "scale(1)")}
                 onClick={() => {
-                  if (action.id === "buat-janji") openView?.("buat-janji");
-                  else if (action.id === "konsultasi") openView?.("konsultasi-online");
-                  else if (action.id === "riwayat") switchTab("riwayat");
-                  else if (action.id === "lokasi") openView?.("lokasi-klinik");
+                  if (action.id === "buat-janji") router.push(PASIEN_PATHS.buatJanji);
+                  else if (action.id === "konsultasi") router.push(PASIEN_PATHS.konsultasi);
+                  else if (action.id === "riwayat") router.push(PASIEN_PATHS.riwayat);
+                  else if (action.id === "lokasi") router.push(PASIEN_PATHS.lokasi);
                 }}
               >
                 {/* Icon box */}
@@ -470,7 +466,7 @@ export default function TabHome({ switchTab, openView }: TabHomeProps) {
               Kunjungan Terakhir
             </h3>
             <button
-              onClick={() => switchTab("riwayat")}
+              onClick={() => router.push(PASIEN_PATHS.riwayat)}
               style={{
                 fontSize: 12, fontWeight: 700, color: "#2A6B9B",
                 background: "none", border: "none", cursor: "pointer", padding: 0,

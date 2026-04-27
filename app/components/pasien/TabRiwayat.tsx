@@ -13,6 +13,9 @@
  */
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { PASIEN_DYNAMIC } from "./pasienRouting";
 
 type RecordFilter = "Semua" | "Tindakan" | "Konsultasi" | "Resep";
 
@@ -108,7 +111,7 @@ interface RecordItem {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function TabRiwayat({ openView }: { openView?: (view: any) => void }) {
+export default function TabRiwayat() {
   const [activeFilter, setActiveFilter] = useState<RecordFilter>("Semua");
 
   const filters: { key: RecordFilter; count?: number }[] = [
@@ -235,7 +238,7 @@ export default function TabRiwayat({ openView }: { openView?: (view: any) => voi
           TIMELINE LIST
           ═══════════════════════════════════════ */}
       {filtered.length === 0 ? (
-        <EmptyRiwayat filter={activeFilter} openView={openView} />
+        <EmptyRiwayat filter={activeFilter} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 0, paddingTop: 4 }}>
           {filtered.map((record, index) => (
@@ -243,7 +246,6 @@ export default function TabRiwayat({ openView }: { openView?: (view: any) => voi
               key={record.id}
               record={record}
               isLast={index === filtered.length - 1}
-              openView={openView}
             />
           ))}
         </div>
@@ -277,7 +279,8 @@ export default function TabRiwayat({ openView }: { openView?: (view: any) => voi
 
 /* ─── Timeline Item ──────────────────────────────────────────────────────── */
 
-function TimelineItem({ record, isLast, openView }: { record: RecordItem; isLast: boolean; openView?: (view: string) => void }) {
+function TimelineItem({ record, isLast }: { record: RecordItem; isLast: boolean }) {
+  const router = useRouter();
   return (
     <div style={{ display: "flex", gap: 12 }}>
       {/* Timeline column */}
@@ -381,7 +384,7 @@ function TimelineItem({ record, isLast, openView }: { record: RecordItem; isLast
             </div>
 
             <button
-              onClick={() => openView?.("detail-riwayat")}
+              onClick={() => router.push(PASIEN_DYNAMIC.riwayatDetail(String(record.id)))}
               aria-label={`Detail ${record.title}`}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
@@ -406,7 +409,7 @@ function TimelineItem({ record, isLast, openView }: { record: RecordItem; isLast
 
 /* ─── Empty State ────────────────────────────────────────────────────────── */
 
-function EmptyRiwayat({ filter, openView }: { filter: RecordFilter; openView?: any }) {
+function EmptyRiwayat({ filter }: { filter: RecordFilter }) {
   const config: Record<RecordFilter, { emoji: string; title: string; desc: string }> = {
     Semua: { emoji: "📋", title: "Belum Ada Catatan", desc: "Rekam medis Anda akan muncul setelah kunjungan pertama." },
     Tindakan: { emoji: "🦷", title: "Belum Ada Tindakan", desc: "Tindakan yang sudah dilakukan akan tersimpan di sini." },

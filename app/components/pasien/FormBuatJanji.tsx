@@ -15,7 +15,7 @@
  * - Konfirmasi card premium + submit button gradient
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -178,11 +178,7 @@ export default function FormBuatJanji({ onBack, onSuccess }: Props) {
   const [catatan, setCatatan] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
-  const [days, setDays] = useState<{ label: string; sub: string; full: string; date: Date }[]>([]);
-
-  useEffect(() => {
-    setDays(getDays());
-  }, []);
+  const [days] = useState(getDays);
 
   const layananData = LAYANAN.find((l) => l.id === selectedLayanan);
   const dokterData = DOKTER.find((d) => d.id === selectedDokter);

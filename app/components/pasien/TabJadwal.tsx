@@ -12,7 +12,9 @@
  */
 
 import { useState } from "react";
-import type { OpenView } from "./PasienShell";
+import { useRouter } from "next/navigation";
+
+import { PASIEN_PATHS, PASIEN_DYNAMIC } from "./pasienRouting";
 
 type FilterStatus = "Akan Datang" | "Selesai" | "Dibatalkan";
 
@@ -65,7 +67,8 @@ interface AppointmentData {
   type: "upcoming" | "completed";
 }
 
-export default function TabJadwal({ openView }: { openView?: OpenView }) {
+export default function TabJadwal() {
+  const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<FilterStatus>("Akan Datang");
 
   const filters: { key: FilterStatus; count?: number }[] = [
@@ -108,7 +111,7 @@ export default function TabJadwal({ openView }: { openView?: OpenView }) {
               fontFamily: "inherit",
               transition: "transform 0.15s ease, box-shadow 0.15s ease",
             }}
-            onClick={() => openView?.("buat-janji")}
+            onClick={() => router.push(PASIEN_PATHS.buatJanji)}
             onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.95)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(42,107,155,0.2)"; }}
             onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 14px rgba(42,107,155,0.35)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 14px rgba(42,107,155,0.35)"; }}
@@ -172,10 +175,10 @@ export default function TabJadwal({ openView }: { openView?: OpenView }) {
           ═══════════════════════════════════════ */}
       <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 4 }}>
         {visible.length === 0 ? (
-          <EmptyJadwal activeFilter={activeFilter} openView={openView} />
+          <EmptyJadwal activeFilter={activeFilter} />
         ) : (
           visible.map((apt) => (
-            <AppointmentCard key={apt.id} data={apt} openView={openView} />
+            <AppointmentCard key={apt.id} data={apt} />
           ))
         )}
       </div>
@@ -186,7 +189,8 @@ export default function TabJadwal({ openView }: { openView?: OpenView }) {
 
 /* ─── Appointment Card ───────────────────────────────────────────────────── */
 
-function AppointmentCard({ data, openView }: { data: AppointmentData; openView?: OpenView }) {
+function AppointmentCard({ data }: { data: AppointmentData }) {
+  const router = useRouter();
   const isUpcoming = data.type === "upcoming";
 
   return (
@@ -293,7 +297,7 @@ function AppointmentCard({ data, openView }: { data: AppointmentData; openView?:
         {isUpcoming && (
           <div style={{ display: "flex", gap: 8 }}>
             <button
-              onClick={() => openView?.("jadwal-ulang")}
+              onClick={() => router.push(PASIEN_DYNAMIC.jadwalUlang(data.id))}
               style={{
                 flex: 1, padding: "11px 0",
                 background: "#fff", border: "1.5px solid #e5e7eb",
@@ -307,7 +311,7 @@ function AppointmentCard({ data, openView }: { data: AppointmentData; openView?:
               Jadwal Ulang
             </button>
             <button
-              onClick={() => openView?.("lihat-tiket")}
+              onClick={() => router.push(PASIEN_DYNAMIC.jadwalTiket(data.id))}
               style={{
                 flex: 2, padding: "11px 0",
                 background: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
@@ -340,7 +344,7 @@ function AppointmentCard({ data, openView }: { data: AppointmentData; openView?:
               <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: 4, lineHeight: "14px" }}>5/5</span>
             </div>
             <button
-              onClick={() => openView?.("detail-riwayat")}
+              onClick={() => router.push(PASIEN_DYNAMIC.riwayatDetail(data.id))}
               style={{
                 fontSize: 11, fontWeight: 700, color: "#2A6B9B",
                 background: "#eff6ff", border: "none", borderRadius: 8,
@@ -384,7 +388,8 @@ function InfoChip({
 
 /* ─── Empty State ────────────────────────────────────────────────────────── */
 
-function EmptyJadwal({ activeFilter, openView }: { activeFilter: FilterStatus; openView?: OpenView }) {
+function EmptyJadwal({ activeFilter }: { activeFilter: FilterStatus }) {
+  const router = useRouter();
   const config = {
     "Akan Datang": {
       color: "#2A6B9B", bg: "#eff6ff", border: "#bfdbfe",
@@ -420,7 +425,7 @@ function EmptyJadwal({ activeFilter, openView }: { activeFilter: FilterStatus; o
       <p style={{ fontSize: 12, color: "#9ca3af", lineHeight: 1.6, marginBottom: 20, maxWidth: 240 }}>{c.desc}</p>
       {activeFilter === "Akan Datang" && (
         <button
-          onClick={() => openView?.("buat-janji")}
+          onClick={() => router.push(PASIEN_PATHS.buatJanji)}
           style={{
             padding: "10px 24px",
             background: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
