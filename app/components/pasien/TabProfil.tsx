@@ -11,6 +11,48 @@
  * - Logout button merah premium
  */
 
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { useAuth } from "@/app/contexts/AuthContext";
+import { listAppointments } from "@/lib/appointments";
+import { getPasienMe, updatePasienMe } from "@/lib/pasien";
+import {
+  getUserDisplayName,
+  getUserInitials,
+  type Appointment,
+  type PasienBundle,
+} from "@/lib/types";
+import { PASIEN_PATHS } from "./pasienRouting";
+
+// ── Helpers presentational ────────────────────────────────────────────────────
+
+function formatTanggalLahir(yyyymmdd: string | null): string {
+  if (!yyyymmdd) return "—";
+  const d = new Date(`${yyyymmdd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return yyyymmdd;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(d);
+}
+
+function formatNoRm(noRm: string | null): string {
+  if (!noRm) return "Belum terdaftar";
+  return noRm;
+}
+
+function formatPhone(phone: string | null): string {
+  if (!phone) return "—";
+  return phone;
+}
+
+function formatGolDarah(g: string | null): string {
+  if (!g) return "—";
+  return g;
+}
+
 // ── Data ──────────────────────────────────────────────────────────────────────
 
 const MENU_GROUPS: MenuGroup[] = [
@@ -108,6 +150,83 @@ interface MenuItem {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function TabProfil() {
+  const router = useRouter();
+  const { user, logout } = useAuth();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // ── Profile fetch ─────────────────────────────────────────────────
+  const [bundle, setBundle] = useState<PasienBundle | null>(null);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Edit modal state
+  const [editOpen, setEditOpen] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    Promise.all([getPasienMe(), listAppointments()])
+      .then(([b, items]) => {
+        if (!alive) return;
+        setBundle(b);
+        setAppointments(items);
+        setErrorMsg(null);
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        setErrorMsg(
+          err instanceof Error ? err.message : "Gagal memuat profil.",
+        );
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // ── Derived ───────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    const visits = appointments.filter((a) => a.status === "selesai").length;
+    const active = appointments.filter((a) =>
+      ["terjadwal", "menunggu", "sedang_ditangani"].includes(a.status),
+    ).length;
+    return { visits, active };
+  }, [appointments]);
+
+  // Prefer bundle.profile.full_name (sumber otoritatif), fallback ke useAuth.
+  const fullName =
+    bundle?.profile.full_name?.trim() ||
+    getUserDisplayName(user) ||
+    "Pasien";
+  const initials = (
+    fullName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s) => s[0]?.toUpperCase() ?? "")
+      .join("") || getUserInitials(user)
+  );
+
+  async function handleLogout() {
+    if (isLoggingOut) return;
+    if (!window.confirm("Yakin ingin keluar dari akun?")) return;
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      router.replace(PASIEN_PATHS.welcome);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
+  function handleProfileSaved(updated: PasienBundle) {
+    setBundle(updated);
+    setEditOpen(false);
+  }
+
   return (
     <div style={{ paddingBottom: 16 }}>
 
@@ -153,7 +272,7 @@ export default function TabProfil() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 boxShadow: "0 0 0 3px rgba(255,255,255,0.25), 0 8px 24px rgba(0,0,0,0.3)",
               }}>
-                <span style={{ color: "#fff", fontSize: 26, fontWeight: 900, letterSpacing: 1 }}>AS</span>
+                <span style={{ color: "#fff", fontSize: 26, fontWeight: 900, letterSpacing: 1 }}>{initials}</span>
               </div>
               {/* Online badge */}
               <div style={{
@@ -190,17 +309,20 @@ export default function TabProfil() {
             {/* Name & info */}
             <div style={{ flex: 1, paddingBottom: 4 }}>
               <h2 style={{ fontSize: 20, fontWeight: 900, color: "#fff", letterSpacing: "-0.02em", marginBottom: 3 }}>
-                Ahmad Surya
+                {loading ? "Memuat…" : fullName}
               </h2>
               <p style={{ fontSize: 12, color: "rgba(186,230,253,0.75)", fontWeight: 500 }}>
-                No. RM: 0092-1249-11
+                {loading ? " " : `No. RM: ${formatNoRm(bundle?.pasien.no_rm ?? null)}`}
               </p>
             </div>
 
             {/* Edit button */}
             <button
               id="btn-edit-profil"
+              type="button"
               aria-label="Edit profil"
+              onClick={() => setEditOpen(true)}
+              disabled={loading || !bundle}
               style={{
                 display: "flex", alignItems: "center", gap: 5,
                 padding: "7px 12px",
@@ -208,7 +330,9 @@ export default function TabProfil() {
                 border: "1px solid rgba(255,255,255,0.2)",
                 color: "#fff", borderRadius: 10,
                 fontSize: 11, fontWeight: 700,
-                cursor: "pointer", fontFamily: "inherit",
+                cursor: loading || !bundle ? "not-allowed" : "pointer",
+                opacity: loading || !bundle ? 0.6 : 1,
+                fontFamily: "inherit",
                 backdropFilter: "blur(8px)",
                 flexShrink: 0, paddingBottom: 4,
               }}
@@ -233,9 +357,10 @@ export default function TabProfil() {
         gap: 10, marginBottom: 24,
       }}>
         {[
-          { value: "8", label: "Kunjungan", icon: "🦷" },
-          { value: "1", label: "Janji Aktif", icon: "📅" },
-          { value: "3", label: "Dokumen", icon: "📋" },
+          { value: loading ? "—" : String(stats.visits), label: "Kunjungan", icon: "🦷" },
+          { value: loading ? "—" : String(stats.active), label: "Janji Aktif", icon: "📅" },
+          // Dokumen belum ada endpoint backend → tampilkan "—".
+          { value: "—", label: "Dokumen", icon: "📋" },
         ].map((stat, i) => (
           <div key={i} style={{
             background: "#fff",
@@ -270,20 +395,28 @@ export default function TabProfil() {
           padding: "12px 16px", borderBottom: "1px solid #f1f5f9",
         }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>Informasi Pasien</span>
-          <button style={{
-            fontSize: 11, fontWeight: 700, color: "#2A6B9B",
-            background: "none", border: "none", cursor: "pointer", fontFamily: "inherit",
-          }}>
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            disabled={loading || !bundle}
+            style={{
+              fontSize: 11, fontWeight: 700, color: "#2A6B9B",
+              background: "none", border: "none",
+              cursor: loading || !bundle ? "not-allowed" : "pointer",
+              opacity: loading || !bundle ? 0.5 : 1,
+              fontFamily: "inherit",
+            }}
+          >
             Edit →
           </button>
         </div>
 
         {/* Info rows */}
         {[
-          { label: "Nama Lengkap", value: "Ahmad Surya" },
-          { label: "Tanggal Lahir", value: "12 Maret 1995" },
-          { label: "Golongan Darah", value: "O+" },
-          { label: "No. Telepon", value: "+62 812-3456-7890" },
+          { label: "Nama Lengkap", value: loading ? "—" : fullName },
+          { label: "Tanggal Lahir", value: loading ? "—" : formatTanggalLahir(bundle?.pasien.tanggal_lahir ?? null) },
+          { label: "Golongan Darah", value: loading ? "—" : formatGolDarah(bundle?.pasien.golongan_darah ?? null) },
+          { label: "No. Telepon", value: loading ? "—" : formatPhone(bundle?.profile.phone ?? null) },
         ].map((row, i, arr) => (
           <div key={row.label} style={{
             display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -379,27 +512,65 @@ export default function TabProfil() {
         </div>
       ))}
 
+      {/* Error notice (kalau fetch gagal) */}
+      {errorMsg && (
+        <div
+          role="alert"
+          style={{
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: 14,
+            padding: "12px 14px",
+            fontSize: 12,
+            color: "#b91c1c",
+            fontWeight: 600,
+            marginBottom: 16,
+          }}
+        >
+          ⚠ {errorMsg}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════
+          EDIT MODAL
+          ═══════════════════════════════════════════ */}
+      {editOpen && bundle && (
+        <EditProfilModal
+          bundle={bundle}
+          onClose={() => setEditOpen(false)}
+          onSaved={handleProfileSaved}
+        />
+      )}
+
       {/* ═══════════════════════════════════════════
           LOGOUT
           ═══════════════════════════════════════════ */}
       <button
         id="btn-keluar"
+        type="button"
+        onClick={handleLogout}
+        disabled={isLoggingOut}
+        aria-label="Keluar dari akun"
         style={{
           display: "flex", alignItems: "center", gap: 12,
           width: "100%", padding: "14px 16px",
           background: "#fff1f2",
           border: "1.5px solid #fecdd3",
-          borderRadius: 16, cursor: "pointer",
+          borderRadius: 16,
+          cursor: isLoggingOut ? "wait" : "pointer",
+          opacity: isLoggingOut ? 0.6 : 1,
           fontFamily: "inherit", textAlign: "left",
           transition: "all 0.15s ease",
           boxShadow: "0 2px 10px rgba(225,29,72,0.08)",
           marginBottom: 8,
         }}
         onMouseEnter={(e) => {
+          if (isLoggingOut) return;
           e.currentTarget.style.background = "#ffe4e6";
           e.currentTarget.style.borderColor = "#f9a8d4";
         }}
         onMouseLeave={(e) => {
+          if (isLoggingOut) return;
           e.currentTarget.style.background = "#fff1f2";
           e.currentTarget.style.borderColor = "#fecdd3";
         }}
@@ -441,6 +612,290 @@ export default function TabProfil() {
         </p>
       </div>
 
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SUBCOMPONENT — EditProfilModal
+// ────────────────────────────────────────────────────────────────────────────
+// Modal sederhana untuk edit data profil pasien. Field yang dapat diubah:
+//   • Nama lengkap   • Nomor telepon
+//   • Tanggal lahir  • Golongan darah   • Alamat
+// Email & no_rm tidak bisa diubah dari sini (out of scope).
+// Validasi dilakukan di backend via zod (PATCH /api/pasien/me).
+// ════════════════════════════════════════════════════════════════════════════
+
+const GOLONGAN_DARAH_OPTIONS = [
+  "", "A", "B", "AB", "O",
+  "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-",
+];
+
+function EditProfilModal({
+  bundle,
+  onClose,
+  onSaved,
+}: {
+  bundle: PasienBundle;
+  onClose: () => void;
+  onSaved: (b: PasienBundle) => void;
+}) {
+  const [fullName, setFullName] = useState(bundle.profile.full_name);
+  const [phone, setPhone] = useState(bundle.profile.phone ?? "");
+  const [tanggalLahir, setTanggalLahir] = useState(
+    bundle.pasien.tanggal_lahir ?? "",
+  );
+  const [golonganDarah, setGolonganDarah] = useState(
+    bundle.pasien.golongan_darah ?? "",
+  );
+  const [alamat, setAlamat] = useState(bundle.pasien.alamat ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const updated = await updatePasienMe({
+        fullName: fullName.trim() || undefined,
+        phone: phone.trim() === "" ? null : phone.trim(),
+        tanggalLahir: tanggalLahir === "" ? null : tanggalLahir,
+        golonganDarah: golonganDarah === "" ? null : golonganDarah,
+        alamat: alamat.trim() === "" ? null : alamat.trim(),
+      });
+      onSaved(updated);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Gagal menyimpan perubahan.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Edit profil pasien"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15,42,77,0.5)",
+        backdropFilter: "blur(6px)",
+        zIndex: 100,
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "center",
+      }}
+      onClick={onClose}
+    >
+      <form
+        onSubmit={handleSubmit}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%",
+          maxWidth: 480,
+          background: "#fff",
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          padding: "20px 22px 24px",
+          boxShadow: "0 -8px 28px rgba(0,0,0,0.18)",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          animation: "slideUp 0.25s ease",
+        }}
+      >
+        {/* Drag handle */}
+        <div
+          style={{
+            width: 44,
+            height: 4,
+            background: "#e5e7eb",
+            borderRadius: 999,
+            margin: "0 auto 16px",
+          }}
+          aria-hidden="true"
+        />
+
+        <h3 style={{ fontSize: 18, fontWeight: 800, color: "#111827", marginBottom: 4 }}>
+          Edit Profil
+        </h3>
+        <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 20 }}>
+          Perubahan akan langsung tersimpan di akun Anda.
+        </p>
+
+        <Field label="Nama Lengkap" htmlFor="edit-full-name">
+          <input
+            id="edit-full-name"
+            type="text"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            disabled={submitting}
+            minLength={2}
+            maxLength={100}
+            required
+            style={inputStyle}
+          />
+        </Field>
+
+        <Field label="Nomor Telepon" htmlFor="edit-phone">
+          <input
+            id="edit-phone"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            disabled={submitting}
+            placeholder="cth: +62 812-3456-7890"
+            style={inputStyle}
+          />
+        </Field>
+
+        <Field label="Tanggal Lahir" htmlFor="edit-tgl-lahir">
+          <input
+            id="edit-tgl-lahir"
+            type="date"
+            value={tanggalLahir}
+            onChange={(e) => setTanggalLahir(e.target.value)}
+            disabled={submitting}
+            max={new Date().toISOString().slice(0, 10)}
+            style={inputStyle}
+          />
+        </Field>
+
+        <Field label="Golongan Darah" htmlFor="edit-gol-darah">
+          <select
+            id="edit-gol-darah"
+            value={golonganDarah}
+            onChange={(e) => setGolonganDarah(e.target.value)}
+            disabled={submitting}
+            style={inputStyle}
+          >
+            {GOLONGAN_DARAH_OPTIONS.map((opt) => (
+              <option key={opt || "kosong"} value={opt}>
+                {opt === "" ? "— Pilih —" : opt}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Alamat" htmlFor="edit-alamat">
+          <textarea
+            id="edit-alamat"
+            value={alamat}
+            onChange={(e) => setAlamat(e.target.value)}
+            disabled={submitting}
+            rows={3}
+            maxLength={500}
+            placeholder="Jl. Contoh No. 123, Kota"
+            style={{ ...inputStyle, resize: "vertical", minHeight: 70 }}
+          />
+        </Field>
+
+        {submitError && (
+          <div
+            role="alert"
+            style={{
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 12,
+              padding: "10px 12px",
+              fontSize: 12,
+              color: "#b91c1c",
+              fontWeight: 600,
+              marginBottom: 12,
+            }}
+          >
+            ⚠ {submitError}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            style={{
+              flex: 1,
+              padding: "12px 16px",
+              borderRadius: 12,
+              border: "1px solid #e5e7eb",
+              background: "#fff",
+              color: "#374151",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: submitting ? "wait" : "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            style={{
+              flex: 1,
+              padding: "12px 16px",
+              borderRadius: 12,
+              border: "none",
+              background: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
+              color: "#fff",
+              fontSize: 13,
+              fontWeight: 800,
+              cursor: submitting ? "wait" : "pointer",
+              opacity: submitting ? 0.7 : 1,
+              fontFamily: "inherit",
+              boxShadow: "0 4px 12px rgba(42,107,155,0.25)",
+            }}
+          >
+            {submitting ? "Menyimpan…" : "Simpan Perubahan"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1.5px solid #e5e7eb",
+  fontSize: 13,
+  color: "#111827",
+  outline: "none",
+  fontFamily: "inherit",
+  background: "#fff",
+};
+
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label
+        htmlFor={htmlFor}
+        style={{
+          display: "block",
+          fontSize: 11,
+          fontWeight: 700,
+          color: "#6b7280",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </label>
+      {children}
     </div>
   );
 }

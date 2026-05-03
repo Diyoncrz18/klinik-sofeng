@@ -1,83 +1,108 @@
 "use client";
 
 /**
- * TabJadwal — Halaman Jadwal Saya (Redesigned)
- * ──────────────────────────────────────────────
- * Design konsisten dengan beranda:
- * - Sticky header bergradient
- * - Filter pill dengan underline indicator (bukan filled)
- * - Appointment card premium dengan gradient accent, info lengkap
- * - Empty state ilustratif
- * - Floating CTA buat janji
+ * TabJadwal — Halaman Jadwal Saya (wired ke backend Phase 2A)
+ * ──────────────────────────────────────────────────────────
+ * Fetch appointment via `/api/appointments` lalu group ke 3 bucket:
+ *   • Akan Datang → status terjadwal | menunggu | sedang_ditangani
+ *   • Selesai     → status selesai
+ *   • Dibatalkan  → status dibatalkan | tidak_hadir
+ *
+ * Card upcoming punya tombol "Batalkan" yang membuka modal konfirmasi.
+ * Submit modal akan memanggil `cancelAppointment(id, alasan?)` dan
+ * me-refetch list sehingga UI selalu konsisten dengan backend.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { PASIEN_PATHS, PASIEN_DYNAMIC } from "./pasienRouting";
-
-type FilterStatus = "Akan Datang" | "Selesai" | "Dibatalkan";
-
-const APPOINTMENTS: AppointmentData[] = [
-  {
-    filter: "Akan Datang",
-    id: "AP-88219",
-    title: "Kontrol Kawat Gigi",
-    doctor: "Dr. Rina Santoso, Sp.KG",
-    specialty: "Sp. Ortodonti",
-    date: "Sabtu, 14 Jun 2026",
-    time: "09:00 – 09:30 WIB",
-    location: "Ruang 3 – Lantai 2",
-    statusLabel: "Terkonfirmasi",
-    statusColor: "#059669",
-    statusBg: "#dcfce7",
-    accentGradient: "linear-gradient(135deg, #059669, #34d399)",
-    type: "upcoming",
-  },
-  {
-    filter: "Selesai",
-    id: "AP-88102",
-    title: "Pembersihan Karang Gigi",
-    doctor: "Dr. Rina Santoso, Sp.KG",
-    specialty: "Sp. KG",
-    date: "Kamis, 22 Mei 2026",
-    time: "10:00 – 10:30 WIB",
-    location: "Ruang 2 – Lantai 1",
-    statusLabel: "Selesai",
-    statusColor: "#6b7280",
-    statusBg: "#f3f4f6",
-    accentGradient: "linear-gradient(135deg, #9ca3af, #d1d5db)",
-    type: "completed",
-  },
-];
-
-interface AppointmentData {
-  filter: FilterStatus;
-  id: string;
-  title: string;
-  doctor: string;
-  specialty: string;
-  date: string;
-  time: string;
-  location: string;
-  statusLabel: string;
-  statusColor: string;
-  statusBg: string;
-  accentGradient: string;
-  type: "upcoming" | "completed";
-}
+import { cancelAppointment, listAppointments } from "@/lib/appointments";
+import {
+  formatJamRange,
+  formatStatusLabel,
+  formatTanggalIndo,
+  getStatusVisual,
+  statusToBucket,
+  type FilterBucket,
+} from "@/lib/format";
+import {
+  appointmentTitle,
+  dokterFullName,
+  dokterSpesialisasi,
+  shortAppointmentId,
+} from "@/lib/appointment-display";
+import type { Appointment } from "@/lib/types";
 
 export default function TabJadwal() {
   const router = useRouter();
-  const [activeFilter, setActiveFilter] = useState<FilterStatus>("Akan Datang");
+  const [activeFilter, setActiveFilter] = useState<FilterBucket>("Akan Datang");
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
 
-  const filters: { key: FilterStatus; count?: number }[] = [
-    { key: "Akan Datang", count: 1 },
-    { key: "Selesai", count: 1 },
-    { key: "Dibatalkan" },
+  // ── Fetch (re-usable untuk refresh setelah cancel) ──────────────
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    try {
+      const items = await listAppointments();
+      setAppointments(items);
+      setErrorMsg(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Gagal memuat jadwal.";
+      setErrorMsg(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  // ── Group + sort per bucket ─────────────────────────────────────
+  const grouped = useMemo(() => {
+    const byBucket: Record<FilterBucket, Appointment[]> = {
+      "Akan Datang": [],
+      "Selesai": [],
+      "Dibatalkan": [],
+    };
+    for (const a of appointments) {
+      byBucket[statusToBucket(a.status)].push(a);
+    }
+    byBucket["Akan Datang"].sort((a, b) =>
+      a.tanggal !== b.tanggal
+        ? a.tanggal.localeCompare(b.tanggal)
+        : a.jam.localeCompare(b.jam),
+    );
+    const sortDesc = (list: Appointment[]) =>
+      list.sort((a, b) =>
+        a.tanggal !== b.tanggal
+          ? b.tanggal.localeCompare(a.tanggal)
+          : b.jam.localeCompare(a.jam),
+      );
+    sortDesc(byBucket["Selesai"]);
+    sortDesc(byBucket["Dibatalkan"]);
+    return byBucket;
+  }, [appointments]);
+
+  const filters: { key: FilterBucket; count: number }[] = [
+    { key: "Akan Datang", count: grouped["Akan Datang"].length },
+    { key: "Selesai", count: grouped["Selesai"].length },
+    { key: "Dibatalkan", count: grouped["Dibatalkan"].length },
   ];
 
-  const visible = APPOINTMENTS.filter((a) => a.filter === activeFilter);
+  const visible = grouped[activeFilter];
+
+  const subtitle = (() => {
+    if (loading) return "Memuat jadwal…";
+    if (activeFilter === "Akan Datang") {
+      const n = grouped["Akan Datang"].length;
+      return n === 0 ? "Tidak ada janji terjadwal" : `${n} janji temu`;
+    }
+    return "Riwayat kunjungan Anda";
+  })();
 
   return (
     <div style={{ position: "relative", paddingBottom: 16 }}>
@@ -93,7 +118,7 @@ export default function TabJadwal() {
               Jadwal Saya
             </h2>
             <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4, fontWeight: 500 }}>
-              {activeFilter === "Akan Datang" ? "1 janji temu menunggu" : "Riwayat kunjungan Anda"}
+              {subtitle}
             </p>
           </div>
 
@@ -174,24 +199,74 @@ export default function TabJadwal() {
           CONTENT
           ═══════════════════════════════════════ */}
       <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 4 }}>
-        {visible.length === 0 ? (
+        {/* Error notice */}
+        {errorMsg && (
+          <div
+            role="alert"
+            style={{
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 14,
+              padding: "12px 14px",
+              fontSize: 12,
+              color: "#b91c1c",
+              fontWeight: 600,
+            }}
+          >
+            ⚠ {errorMsg}
+          </div>
+        )}
+
+        {loading ? (
+          <CardSkeleton />
+        ) : visible.length === 0 ? (
           <EmptyJadwal activeFilter={activeFilter} />
         ) : (
-          visible.map((apt) => (
-            <AppointmentCard key={apt.id} data={apt} />
+          visible.map((appt) => (
+            <AppointmentCard
+              key={appt.id}
+              appointment={appt}
+              onCancel={() => setCancelTarget(appt)}
+            />
           ))
         )}
       </div>
 
+      {/* Cancel modal */}
+      {cancelTarget && (
+        <CancelModal
+          appt={cancelTarget}
+          onClose={() => setCancelTarget(null)}
+          onSuccess={() => {
+            setCancelTarget(null);
+            void refetch();
+          }}
+        />
+      )}
     </div>
   );
 }
 
 /* ─── Appointment Card ───────────────────────────────────────────────────── */
 
-function AppointmentCard({ data }: { data: AppointmentData }) {
+function AppointmentCard({
+  appointment,
+  onCancel,
+}: {
+  appointment: Appointment;
+  onCancel?: () => void;
+}) {
   const router = useRouter();
-  const isUpcoming = data.type === "upcoming";
+  const bucket = statusToBucket(appointment.status);
+  const isUpcoming = bucket === "Akan Datang";
+  const isCompleted = bucket === "Selesai";
+  const visual = getStatusVisual(appointment.status);
+
+  // Lokasi belum tersedia di domain BE — fallback ke spesialisasi dokter
+  // sebagai info pendamping yang bermakna.
+  const lokasi = appointment.dokter?.spesialisasi
+    ? `Klinik — ${dokterSpesialisasi(appointment)}`
+    : "Klinik Gigi";
 
   return (
     <article style={{
@@ -203,7 +278,7 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
     }}>
       {/* Gradient header strip */}
       <div style={{
-        background: data.accentGradient,
+        background: visual.accentGradient,
         padding: "12px 16px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
@@ -222,11 +297,11 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
             fontSize: 11, fontWeight: 800, color: "#fff",
             letterSpacing: "0.06em", textTransform: "uppercase",
           }}>
-            {data.statusLabel}
+            {formatStatusLabel(appointment.status)}
           </span>
         </div>
         <span style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", fontWeight: 500 }}>
-          ID: {data.id}
+          ID: {shortAppointmentId(appointment.id)}
         </span>
       </div>
 
@@ -234,7 +309,7 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
       <div style={{ padding: "16px 16px 14px" }}>
         {/* Title + Doctor */}
         <h3 style={{ fontSize: 16, fontWeight: 800, color: "#111827", marginBottom: 4, letterSpacing: "-0.01em" }}>
-          {data.title}
+          {appointmentTitle(appointment)}
         </h3>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
           <div style={{
@@ -248,8 +323,8 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
             </svg>
           </div>
           <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 500 }}>
-            {data.doctor}
-            <span style={{ color: "#2A6B9B", fontWeight: 700 }}> · {data.specialty}</span>
+            {dokterFullName(appointment)}
+            <span style={{ color: "#2A6B9B", fontWeight: 700 }}> · {dokterSpesialisasi(appointment)}</span>
           </span>
         </div>
 
@@ -267,7 +342,7 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
               </svg>
             }
             label="Tanggal"
-            value={data.date}
+            value={formatTanggalIndo(appointment.tanggal)}
           />
           <InfoChip
             icon={
@@ -277,7 +352,7 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
               </svg>
             }
             label="Waktu"
-            value={data.time}
+            value={formatJamRange(appointment.jam)}
           />
           <InfoChip
             colSpan={2}
@@ -289,7 +364,7 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
               </svg>
             }
             label="Lokasi"
-            value={data.location}
+            value={lokasi}
           />
         </div>
 
@@ -297,21 +372,34 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
         {isUpcoming && (
           <div style={{ display: "flex", gap: 8 }}>
             <button
-              onClick={() => router.push(PASIEN_DYNAMIC.jadwalUlang(data.id))}
+              onClick={onCancel}
+              disabled={!onCancel}
               style={{
                 flex: 1, padding: "11px 0",
-                background: "#fff", border: "1.5px solid #e5e7eb",
-                color: "#374151", fontWeight: 700, fontSize: 13,
-                borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
-                transition: "border-color 0.15s ease",
+                background: "#fff", border: "1.5px solid #fecaca",
+                color: "#b91c1c", fontWeight: 700, fontSize: 13,
+                borderRadius: 12,
+                cursor: onCancel ? "pointer" : "not-allowed",
+                opacity: onCancel ? 1 : 0.5,
+                fontFamily: "inherit",
+                transition: "background 0.15s ease, border-color 0.15s ease",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#2A6B9B")}
-              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e5e7eb")}
+              onMouseEnter={(e) => {
+                if (!onCancel) return;
+                e.currentTarget.style.borderColor = "#b91c1c";
+                e.currentTarget.style.background = "#fef2f2";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#fecaca";
+                e.currentTarget.style.background = "#fff";
+              }}
             >
-              Jadwal Ulang
+              Batalkan
             </button>
             <button
-              onClick={() => router.push(PASIEN_DYNAMIC.jadwalTiket(data.id))}
+              onClick={() =>
+                router.push(PASIEN_DYNAMIC.jadwalTiket(appointment.id))
+              }
               style={{
                 flex: 2, padding: "11px 0",
                 background: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
@@ -331,20 +419,13 @@ function AppointmentCard({ data }: { data: AppointmentData }) {
           </div>
         )}
 
-        {/* Completed: rating + detail */}
-        {!isUpcoming && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 10, borderTop: "1px solid #f3f4f6" }}>
-            <div style={{ display: "flex", gap: 2 }}>
-              {[1, 2, 3, 4, 5].map((s) => (
-                <svg key={s} width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"
-                  fill={s <= 5 ? "#fbbf24" : "#e5e7eb"} stroke="none">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                </svg>
-              ))}
-              <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: 4, lineHeight: "14px" }}>5/5</span>
-            </div>
+        {/* Completed: detail link */}
+        {isCompleted && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", paddingTop: 10, borderTop: "1px solid #f3f4f6" }}>
             <button
-              onClick={() => router.push(PASIEN_DYNAMIC.riwayatDetail(data.id))}
+              onClick={() =>
+                router.push(PASIEN_DYNAMIC.riwayatDetail(appointment.id))
+              }
               style={{
                 fontSize: 11, fontWeight: 700, color: "#2A6B9B",
                 background: "#eff6ff", border: "none", borderRadius: 8,
@@ -388,7 +469,7 @@ function InfoChip({
 
 /* ─── Empty State ────────────────────────────────────────────────────────── */
 
-function EmptyJadwal({ activeFilter }: { activeFilter: FilterStatus }) {
+function EmptyJadwal({ activeFilter }: { activeFilter: FilterBucket }) {
   const router = useRouter();
   const config = {
     "Akan Datang": {
@@ -437,6 +518,262 @@ function EmptyJadwal({ activeFilter }: { activeFilter: FilterStatus }) {
           Buat Janji Sekarang
         </button>
       )}
+    </div>
+  );
+}
+
+/* ─── Card Skeleton ──────────────────────────────────────────────────────── */
+
+function CardSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {[0, 1].map((i) => (
+        <div
+          key={i}
+          aria-busy="true"
+          aria-label="Memuat jadwal"
+          style={{
+            background: "#fff",
+            border: "1px solid rgba(115,199,227,0.12)",
+            borderRadius: 20,
+            overflow: "hidden",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+          }}
+        >
+          <div style={{ height: 38, background: "#e2e8f0" }} />
+          <div style={{ padding: "16px 16px 14px" }}>
+            <div style={{ height: 14, width: "55%", background: "#e2e8f0", borderRadius: 6, marginBottom: 8 }} />
+            <div style={{ height: 10, width: "40%", background: "#eef2f7", borderRadius: 6, marginBottom: 14 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div style={{ height: 36, background: "#f1f5f9", borderRadius: 10 }} />
+              <div style={{ height: 36, background: "#f1f5f9", borderRadius: 10 }} />
+              <div style={{ gridColumn: "span 2", height: 36, background: "#f1f5f9", borderRadius: 10 }} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Cancel Modal (FormBatalkanJanji inline) ────────────────────────────── */
+
+function CancelModal({
+  appt,
+  onClose,
+  onSuccess,
+}: {
+  appt: Appointment;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [alasan, setAlasan] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Tutup dengan Esc
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !submitting) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, submitting]);
+
+  const handleConfirm = async () => {
+    setSubmitting(true);
+    setErrorMsg(null);
+    try {
+      await cancelAppointment(appt.id, alasan.trim() || null);
+      onSuccess();
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Gagal membatalkan janji.";
+      setErrorMsg(msg);
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cancel-modal-title"
+      onClick={() => {
+        if (!submitting) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "center",
+        padding: 16,
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff",
+          borderRadius: 20,
+          width: "100%",
+          maxWidth: 420,
+          padding: "20px 20px 18px",
+          boxShadow: "0 24px 48px rgba(15, 23, 42, 0.35)",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+          <div
+            style={{
+              width: 40, height: 40, borderRadius: 12,
+              background: "#fef2f2",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#b91c1c"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </div>
+          <div style={{ flex: 1 }}>
+            <h2
+              id="cancel-modal-title"
+              style={{
+                fontSize: 16,
+                fontWeight: 800,
+                color: "#111827",
+                marginBottom: 2,
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Batalkan Janji?
+            </h2>
+            <p style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+              {appointmentTitle(appt)} bersama {dokterFullName(appt)} pada{" "}
+              {formatTanggalIndo(appt.tanggal)} {formatJamRange(appt.jam)}.
+            </p>
+          </div>
+        </div>
+
+        {/* Alasan textarea */}
+        <label
+          htmlFor="cancel-alasan"
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#374151",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            marginBottom: 6,
+          }}
+        >
+          Alasan (opsional)
+        </label>
+        <textarea
+          id="cancel-alasan"
+          value={alasan}
+          onChange={(e) => setAlasan(e.target.value)}
+          maxLength={300}
+          rows={3}
+          placeholder="Beritahu klinik kenapa Anda membatalkan…"
+          disabled={submitting}
+          style={{
+            width: "100%",
+            border: "1.5px solid #e5e7eb",
+            borderRadius: 12,
+            padding: "10px 12px",
+            fontSize: 13,
+            color: "#111827",
+            fontFamily: "inherit",
+            resize: "vertical",
+            outline: "none",
+            transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "#2A6B9B";
+            e.currentTarget.style.boxShadow = "0 0 0 3px rgba(42,107,155,0.12)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "#e5e7eb";
+            e.currentTarget.style.boxShadow = "none";
+          }}
+        />
+        <p style={{ fontSize: 10, color: "#9ca3af", textAlign: "right", marginTop: 4 }}>
+          {alasan.length}/300
+        </p>
+
+        {/* Error */}
+        {errorMsg && (
+          <div
+            role="alert"
+            style={{
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 10,
+              padding: "8px 10px",
+              fontSize: 12,
+              color: "#b91c1c",
+              fontWeight: 600,
+              marginTop: 10,
+            }}
+          >
+            {errorMsg}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            style={{
+              flex: 1,
+              padding: "11px 0",
+              background: "#fff",
+              border: "1.5px solid #e5e7eb",
+              color: "#374151",
+              fontWeight: 700,
+              fontSize: 13,
+              borderRadius: 12,
+              cursor: submitting ? "not-allowed" : "pointer",
+              fontFamily: "inherit",
+              opacity: submitting ? 0.6 : 1,
+            }}
+          >
+            Tutup
+          </button>
+          <button
+            onClick={() => void handleConfirm()}
+            disabled={submitting}
+            style={{
+              flex: 2,
+              padding: "11px 0",
+              background: submitting
+                ? "#fca5a5"
+                : "linear-gradient(135deg, #b91c1c, #ef4444)",
+              border: "none",
+              color: "#fff",
+              fontWeight: 800,
+              fontSize: 13,
+              borderRadius: 12,
+              cursor: submitting ? "not-allowed" : "pointer",
+              fontFamily: "inherit",
+              boxShadow: "0 4px 12px rgba(185,28,28,0.3)",
+            }}
+          >
+            {submitting ? "Membatalkan…" : "Ya, Batalkan"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

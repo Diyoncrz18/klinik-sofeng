@@ -12,30 +12,54 @@
  * - Empty & load-more state
  */
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { listAppointments } from "@/lib/appointments";
+import { appointmentTitle, dokterFullName, dokterSpesialisasi } from "@/lib/appointment-display";
+import type { Appointment, AppointmentType } from "@/lib/types";
 import { PASIEN_DYNAMIC } from "./pasienRouting";
 
 type RecordFilter = "Semua" | "Tindakan" | "Konsultasi" | "Resep";
 
-// ── Data ──────────────────────────────────────────────────────────────────────
-const RECORDS: RecordItem[] = [
-  {
-    id: 1,
-    category: "Tindakan",
-    date: "22 Mei 2026",
-    monthYear: "MEI 2026",
-    title: "Scaling & Polishing",
-    doctor: "Dr. Rina Santoso",
-    specialty: "Sp.KG",
-    description: "Pembersihan karang gigi menyeluruh menggunakan ultrasonic scaler.",
-    amount: "Rp 450.000",
-    payStatus: "Lunas",
-    payColor: "#059669",
-    payBg: "#dcfce7",
-    iconGradient: "linear-gradient(135deg, #059669, #34d399)",
-    accentColor: "#059669",
+// Mapping: filter UI → jenis appointment di backend.
+// 'Resep' belum punya backing data (perlu endpoint rekam_medis) → empty.
+const JENIS_PER_FILTER: Record<RecordFilter, AppointmentType[] | null> = {
+  Semua: null, // null = tampilkan semua jenis
+  Tindakan: ["tindakan", "kontrol"],
+  Konsultasi: ["konsultasi", "pemeriksaan"],
+  Resep: [], // empty array → tidak ada match
+};
+
+// Palette icon per jenis appointment.
+const JENIS_ICON: Record<
+  AppointmentType,
+  { gradient: string; accent: string; icon: React.ReactNode }
+> = {
+  konsultasi: {
+    gradient: "linear-gradient(135deg, #4c1d95, #7c3aed)",
+    accent: "#7c3aed",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </svg>
+    ),
+  },
+  pemeriksaan: {
+    gradient: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
+    accent: "#2A6B9B",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+        <path d="M22 12A10 10 0 0 0 12 2v10z" />
+      </svg>
+    ),
+  },
+  kontrol: {
+    gradient: "linear-gradient(135deg, #064e3b, #059669)",
+    accent: "#059669",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white"
         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -43,21 +67,9 @@ const RECORDS: RecordItem[] = [
       </svg>
     ),
   },
-  {
-    id: 2,
-    category: "Tindakan",
-    date: "10 Apr 2026",
-    monthYear: "APR 2026",
-    title: "Pemasangan Kawat Gigi",
-    doctor: "Dr. Rina Santoso",
-    specialty: "Sp.KG",
-    description: "Pemasangan bracket dan kawat orthodontik untuk koreksi gigitan.",
-    amount: "Rp 8.500.000",
-    payStatus: "Cicilan",
-    payColor: "#d97706",
-    payBg: "#fef3c7",
-    iconGradient: "linear-gradient(135deg, #1d4e73, #2A6B9B)",
-    accentColor: "#2A6B9B",
+  tindakan: {
+    gradient: "linear-gradient(135deg, #78350f, #d97706)",
+    accent: "#d97706",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white"
         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -66,72 +78,134 @@ const RECORDS: RecordItem[] = [
       </svg>
     ),
   },
-  {
-    id: 3,
-    category: "Konsultasi",
-    date: "28 Mar 2026",
-    monthYear: "MAR 2026",
-    title: "Foto Panoramik & Konsultasi",
-    doctor: "Dr. Andi Pratama",
-    specialty: "Sp.Ort",
-    description: "Rontgen gigi panoramik dan konsultasi rencana perawatan ortodonti.",
-    amount: "Rp 250.000",
-    payStatus: "Lunas",
-    payColor: "#059669",
-    payBg: "#dcfce7",
-    iconGradient: "linear-gradient(135deg, #4c1d95, #7c3aed)",
-    accentColor: "#7c3aed",
+  darurat: {
+    gradient: "linear-gradient(135deg, #7f1d1d, #dc2626)",
+    accent: "#dc2626",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white"
         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" />
-        <path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" />
-        <rect width="10" height="8" x="7" y="8" rx="1" />
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+        <path d="M12 9v4" /><path d="M12 17h.01" />
       </svg>
     ),
   },
-];
+};
 
 interface RecordItem {
-  id: number;
+  id: string;
   category: RecordFilter;
   date: string;
-  monthYear: string;
   title: string;
   doctor: string;
   specialty: string;
   description: string;
-  amount: string;
-  payStatus: string;
-  payColor: string;
-  payBg: string;
   iconGradient: string;
   accentColor: string;
   icon: React.ReactNode;
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+function toRecordItem(a: Appointment): RecordItem {
+  const palette = JENIS_ICON[a.jenis] ?? JENIS_ICON.konsultasi;
+  const description =
+    a.catatan_dokter?.trim() ||
+    a.keluhan?.trim() ||
+    "Tidak ada catatan untuk kunjungan ini.";
+  return {
+    id: a.id,
+    category:
+      a.jenis === "tindakan" || a.jenis === "kontrol" ? "Tindakan"
+      : a.jenis === "konsultasi" || a.jenis === "pemeriksaan" ? "Konsultasi"
+      : "Tindakan",
+    date: formatTanggalShort(a.tanggal),
+    title: appointmentTitle(a),
+    doctor: dokterFullName(a),
+    specialty: dokterSpesialisasi(a),
+    description,
+    iconGradient: palette.gradient,
+    accentColor: palette.accent,
+    icon: palette.icon,
+  };
+}
+
+function formatTanggalShort(yyyymmdd: string): string {
+  const d = new Date(`${yyyymmdd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return yyyymmdd;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(d);
+}
+
+// ── Component ───────────────────────────────────────────────────────────────────
 export default function TabRiwayat() {
   const [activeFilter, setActiveFilter] = useState<RecordFilter>("Semua");
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    listAppointments({ status: ["selesai"] })
+      .then((items) => {
+        if (!alive) return;
+        setAppointments(items);
+        setErrorMsg(null);
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        setErrorMsg(
+          err instanceof Error ? err.message : "Gagal memuat riwayat.",
+        );
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const records = useMemo<RecordItem[]>(() => {
+    return appointments
+      .slice()
+      .sort((a, b) => {
+        // Terbaru di atas: tanggal desc, jam desc.
+        if (a.tanggal !== b.tanggal) return b.tanggal.localeCompare(a.tanggal);
+        return b.jam.localeCompare(a.jam);
+      })
+      .map(toRecordItem);
+  }, [appointments]);
 
   const filters: { key: RecordFilter; count?: number }[] = [
-    { key: "Semua", count: RECORDS.length },
-    { key: "Tindakan", count: RECORDS.filter((r) => r.category === "Tindakan").length },
-    { key: "Konsultasi", count: RECORDS.filter((r) => r.category === "Konsultasi").length },
-    { key: "Resep" },
+    { key: "Semua", count: records.length },
+    {
+      key: "Tindakan",
+      count: appointments.filter((a) =>
+        (JENIS_PER_FILTER.Tindakan ?? []).includes(a.jenis),
+      ).length,
+    },
+    {
+      key: "Konsultasi",
+      count: appointments.filter((a) =>
+        (JENIS_PER_FILTER.Konsultasi ?? []).includes(a.jenis),
+      ).length,
+    },
+    { key: "Resep", count: 0 },
   ];
 
-  const filtered = activeFilter === "Semua"
-    ? RECORDS
-    : RECORDS.filter((r) => r.category === activeFilter);
+  const filtered = useMemo<RecordItem[]>(() => {
+    if (activeFilter === "Semua") return records;
+    if (activeFilter === "Resep") return [];
+    const allowed = JENIS_PER_FILTER[activeFilter] ?? [];
+    return records.filter((r) => {
+      const a = appointments.find((x) => x.id === r.id);
+      return a ? allowed.includes(a.jenis) : false;
+    });
+  }, [activeFilter, records, appointments]);
 
-  // Total biaya
-  const totalBiaya = filtered
-    .reduce((sum, r) => {
-      const num = parseInt(r.amount.replace(/\D/g, ""), 10);
-      return sum + (isNaN(num) ? 0 : num);
-    }, 0)
-    .toLocaleString("id-ID");
+  // Total kunjungan tercatat (biaya belum ada di domain).
+  const totalLabel = `${records.length} kunjungan`;
 
   return (
     <div style={{ position: "relative", paddingBottom: 16 }}>
@@ -179,9 +253,9 @@ export default function TabRiwayat() {
             background: "#2A6B9B", flexShrink: 0,
           }} />
           <p style={{ fontSize: 11, color: "#6b7280", fontWeight: 500 }}>
-            Total biaya tercatat:
+            Riwayat kunjungan:
             <span style={{ fontWeight: 800, color: "#111827", marginLeft: 4 }}>
-              Rp {totalBiaya}
+              {loading ? "—" : totalLabel}
             </span>
           </p>
         </div>
@@ -234,10 +308,44 @@ export default function TabRiwayat() {
         </div>
       </div>
 
+      {/* Error notice */}
+      {errorMsg && (
+        <div
+          role="alert"
+          style={{
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: 14,
+            padding: "12px 14px",
+            fontSize: 12,
+            color: "#b91c1c",
+            fontWeight: 600,
+            marginTop: 12,
+          }}
+        >
+          ⚠ {errorMsg}
+        </div>
+      )}
+
       {/* ═══════════════════════════════════════
           TIMELINE LIST
           ═══════════════════════════════════════ */}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 12 }}>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              aria-busy="true"
+              style={{
+                height: 96,
+                borderRadius: 16,
+                background: "#f1f5f9",
+                animation: "pasienPulse 1.5s ease-in-out infinite",
+              }}
+            />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <EmptyRiwayat filter={activeFilter} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 0, paddingTop: 4 }}>
@@ -248,29 +356,6 @@ export default function TabRiwayat() {
               isLast={index === filtered.length - 1}
             />
           ))}
-        </div>
-      )}
-
-      {/* Load more */}
-      {filtered.length > 0 && (
-        <div style={{ textAlign: "center", paddingTop: 16 }}>
-          <button
-            style={{
-              padding: "10px 28px",
-              background: "#fff", border: "1.5px solid #e5e7eb",
-              color: "#6b7280", fontSize: 12, fontWeight: 700,
-              borderRadius: 999, cursor: "pointer", fontFamily: "inherit",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-              transition: "border-color 0.15s ease",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#2A6B9B")}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e5e7eb")}
-          >
-            Muat Lebih Banyak
-          </button>
-          <p style={{ fontSize: 10, color: "#d1d5db", marginTop: 8 }}>
-            Menampilkan {filtered.length} catatan
-          </p>
         </div>
       )}
     </div>
@@ -362,27 +447,8 @@ function TimelineItem({ record, isLast }: { record: RecordItem; isLast: boolean 
             {record.description}
           </p>
 
-          {/* Footer: amount + action */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9ca3af"
-                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
-                <path d="M14 8H8" /><path d="M16 12H8" /><path d="M12 16H8" />
-              </svg>
-              <span style={{ fontSize: 13, fontWeight: 800, color: "#374151" }}>
-                {record.amount}
-              </span>
-              <span style={{
-                fontSize: 9, fontWeight: 800,
-                color: record.payColor,
-                background: record.payBg,
-                padding: "3px 7px", borderRadius: 20,
-              }}>
-                {record.payStatus}
-              </span>
-            </div>
-
+          {/* Footer: action only (biaya/payment belum ada di domain) */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
             <button
               onClick={() => router.push(PASIEN_DYNAMIC.riwayatDetail(String(record.id)))}
               aria-label={`Detail ${record.title}`}

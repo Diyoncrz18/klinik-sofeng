@@ -13,6 +13,8 @@ import { useRouter } from "next/navigation";
 
 import BackHeader from "@/app/components/shared/BackHeader";
 import { PASIEN_PATHS } from "@/app/components/pasien/pasienRouting";
+import { useAuth } from "@/app/contexts/AuthContext";
+import { ApiError } from "@/lib/api";
 
 interface RegisterForm {
   nama: string;
@@ -33,6 +35,7 @@ const INITIAL: RegisterForm = {
 export default function PasienRegisterPage() {
   const router = useRouter();
   const formId = useId();
+  const { register, login } = useAuth();
 
   const [form, setForm] = useState<RegisterForm>(INITIAL);
   const [agree, setAgree] = useState(false);
@@ -68,10 +71,34 @@ export default function PasienRegisterPage() {
     }
 
     setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsLoading(false);
+    try {
+      // 1. Buat akun di backend (role default = 'pasien').
+      await register({
+        email: form.email.trim(),
+        password: form.password,
+        fullName: form.nama.trim(),
+        role: "pasien",
+      });
 
-    router.push(PASIEN_PATHS.verifikasi);
+      // 2. Auto-login. Di dev backend pakai email_confirm=true sehingga
+      //    user langsung bisa login. Kalau gagal (mis. email confirmation
+      //    aktif di prod), arahkan ke halaman verifikasi.
+      try {
+        await login(form.email.trim(), form.password);
+        router.replace(PASIEN_PATHS.home);
+      } catch {
+        router.push(PASIEN_PATHS.verifikasi);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        // 409 = email exists, 400 = validation
+        setError(err.message);
+      } else {
+        setError("Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (

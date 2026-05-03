@@ -15,13 +15,28 @@
  * - Konfirmasi card premium + submit button gradient
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { useAuth } from "@/app/contexts/AuthContext";
+import { createAppointment } from "@/lib/appointments";
+import { listDokter } from "@/lib/dokter";
+import {
+  getUserDisplayName,
+  getUserInitials,
+  type Appointment,
+  type AppointmentType,
+  type DokterProfileData,
+} from "@/lib/types";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface Props {
   onBack: () => void;
-  onSuccess: () => void;
+  /**
+   * Dipanggil setelah `createAppointment` berhasil. Implementasi parent
+   * biasanya redirect ke detail tiket atau kembali ke list jadwal.
+   */
+  onSuccess: (appt: Appointment) => void;
 }
 
 type Step = 1 | 2 | 3;
@@ -36,13 +51,34 @@ interface LayananItem {
   harga: string;
 }
 
-interface DokterItem {
-  id: string;
-  nama: string;
-  spesialis: string;
-  rating: string;
-  jam: string;
-  avatar: string;
+// ── Mapping FE → Backend enum ──────────────────────────────────────────
+//
+// Layanan UI → `appointment.jenis`. "darurat" tidak diekspos di wizard
+// reguler (pasien butuh flow triage terpisah).
+const JENIS_PER_LAYANAN: Record<string, AppointmentType> = {
+  scaling:    "tindakan",
+  konsultasi: "konsultasi",
+  kawat:      "kontrol",
+  cabut:      "tindakan",
+  tambal:     "tindakan",
+  rontgen:    "pemeriksaan",
+};
+
+function dokterAvatar(nama: string): string {
+  return nama
+    .replace(/^Dr\.?\s*/i, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase() ?? "")
+    .join("") || "DR";
+}
+
+function dokterIdentifier(dokter: DokterProfileData): string | null {
+  if (dokter.sip?.trim()) return `SIP ${dokter.sip.trim()}`;
+  if (dokter.nip?.trim()) return `NIP ${dokter.nip.trim()}`;
+  if (dokter.profile.email?.trim()) return dokter.profile.email.trim();
+  return null;
 }
 
 // ── Static Data ────────────────────────────────────────────────────────────
@@ -139,13 +175,17 @@ const LAYANAN: LayananItem[] = [
   },
 ];
 
-const DOKTER: DokterItem[] = [
-  { id: "rina", nama: "Dr. Rina Santoso", spesialis: "Sp.KG", rating: "4.9", jam: "08.00–16.00", avatar: "RS" },
-  { id: "andi", nama: "Dr. Andi Pratama", spesialis: "Sp.Ort", rating: "4.8", jam: "09.00–17.00", avatar: "AP" },
-  { id: "maya", nama: "Dr. Maya Kusuma", spesialis: "Sp.BM", rating: "4.7", jam: "10.00–18.00", avatar: "MK" },
-];
-
+// Slot waktu kandidat (FE-only). Backend yang autoritatif untuk
+// validasi jadwal dokter — client hanya menampilkan opsi.
 const WAKTU = ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "13:00", "13:30", "14:00", "14:30", "15:00"];
+
+// Format YYYY-MM-DD untuk dikirim ke backend.
+function toYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 // Generate 7 hari ke depan
 function getDays() {
@@ -168,6 +208,7 @@ function getDays() {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function FormBuatJanji({ onBack, onSuccess }: Props) {
+  const { user } = useAuth();
   const [step, setStep] = useState<Step>(1);
 
   // Form state
@@ -178,14 +219,48 @@ export default function FormBuatJanji({ onBack, onSuccess }: Props) {
   const [catatan, setCatatan] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
+  // Backend state
+  const [dokterList, setDokterList] = useState<DokterProfileData[]>([]);
+  const [dokterLoading, setDokterLoading] = useState(true);
+  const [dokterError, setDokterError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   const [days] = useState(getDays);
 
+  // Fetch list dokter sekali saat mount.
+  useEffect(() => {
+    let alive = true;
+    setDokterLoading(true);
+    listDokter()
+      .then((items) => {
+        if (!alive) return;
+        setDokterList(items);
+        setDokterError(null);
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        setDokterError(
+          err instanceof Error ? err.message : "Gagal memuat daftar dokter.",
+        );
+      })
+      .finally(() => {
+        if (alive) setDokterLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const layananData = LAYANAN.find((l) => l.id === selectedLayanan);
-  const dokterData = DOKTER.find((d) => d.id === selectedDokter);
+  const dokterData = dokterList.find((d) => d.id === selectedDokter);
   const dayData = selectedDay !== null ? days[selectedDay] : null;
 
   const canNext1 = selectedLayanan !== null;
-  const canNext2 = selectedDokter !== null && selectedDay !== null && selectedWaktu !== null;
+  const canNext2 =
+    selectedDokter !== null &&
+    selectedDay !== null &&
+    selectedWaktu !== null;
 
   const goNext = () => {
     if (step < 3) setStep((s) => (s + 1) as Step);
@@ -200,10 +275,33 @@ export default function FormBuatJanji({ onBack, onSuccess }: Props) {
     if (main) main.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleSubmit = () => {
-    setSubmitted(true);
-    setTimeout(() => onSuccess(), 2200);
-  };
+  async function handleSubmit() {
+    if (submitting) return;
+    if (!selectedDokter || !dayData || !selectedWaktu || !selectedLayanan) return;
+
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const jenis = JENIS_PER_LAYANAN[selectedLayanan] ?? "konsultasi";
+      const created = await createAppointment({
+        dokterId: selectedDokter,
+        tanggal: toYmd(dayData.date),
+        jam: selectedWaktu,
+        jenis,
+        keluhan: catatan.trim() === "" ? null : catatan.trim(),
+      });
+      setSubmitted(true);
+      // Beri delay singkat untuk feedback visual sukses, lalu serahkan
+      // ke parent untuk navigasi (mis. → detail tiket).
+      setTimeout(() => onSuccess(created), 1500);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Gagal membuat janji temu.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   // ── Success screen ───────────────────────────────────────────────────────
   if (submitted) {
@@ -460,72 +558,137 @@ export default function FormBuatJanji({ onBack, onSuccess }: Props) {
             <h3 style={{ fontSize: 13, fontWeight: 800, color: "#374151", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
               Pilih Dokter
             </h3>
+
+            {dokterError && (
+              <div
+                role="alert"
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  borderRadius: 12,
+                  padding: "10px 12px",
+                  fontSize: 12,
+                  color: "#b91c1c",
+                  fontWeight: 600,
+                  marginBottom: 10,
+                }}
+              >
+                ⚠ {dokterError}
+              </div>
+            )}
+
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {DOKTER.map((dokter) => {
-                const isSelected = selectedDokter === dokter.id;
-                return (
-                  <button
-                    key={dokter.id}
-                    onClick={() => setSelectedDokter(dokter.id)}
+              {dokterLoading ? (
+                [0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    aria-busy="true"
                     style={{
-                      display: "flex", alignItems: "center", gap: 12,
-                      padding: "12px 14px",
-                      background: "#fff",
-                      border: isSelected ? "2px solid #2A6B9B" : "1.5px solid #e5e7eb",
-                      borderRadius: 14, cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-                      boxShadow: isSelected ? "0 4px 14px rgba(42,107,155,0.12)" : "0 1px 4px rgba(0,0,0,0.04)",
-                      transition: "all 0.15s ease",
+                      height: 64,
+                      borderRadius: 14,
+                      background: "#f1f5f9",
+                      animation: "pasienPulse 1.5s ease-in-out infinite",
                     }}
-                  >
-                    {/* Avatar */}
-                    <div style={{
-                      width: 44, height: 44, borderRadius: "50%",
-                      background: isSelected
-                        ? "linear-gradient(135deg, #1d4e73, #2A6B9B)"
-                        : "linear-gradient(135deg, #e5e7eb, #d1d5db)",
-                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                      boxShadow: isSelected ? "0 4px 10px rgba(42,107,155,0.3)" : "none",
-                    }}>
-                      <span style={{ fontSize: 13, fontWeight: 900, color: isSelected ? "#fff" : "#9ca3af" }}>
-                        {dokter.avatar}
-                      </span>
-                    </div>
-
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: 13, fontWeight: 800, color: "#111827" }}>{dokter.nama}</p>
-                      <p style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                        {dokter.spesialis}
-                        <span style={{ color: "#d1d5db" }}> · </span>
-                        ⏰ {dokter.jam}
-                      </p>
-                    </div>
-
-                    {/* Rating */}
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 3,
-                      background: "#fffbeb", borderRadius: 8, padding: "3px 7px",
-                      border: "1px solid #fde68a",
-                    }}>
-                      <span style={{ fontSize: 10 }}>⭐</span>
-                      <span style={{ fontSize: 10, fontWeight: 800, color: "#92400e" }}>{dokter.rating}</span>
-                    </div>
-
-                    {/* Check */}
-                    {isSelected && (
+                  />
+                ))
+              ) : dokterList.length === 0 ? (
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1.5px dashed #e5e7eb",
+                    borderRadius: 14,
+                    padding: "16px 14px",
+                    fontSize: 12,
+                    color: "#6b7280",
+                    textAlign: "center",
+                  }}
+                >
+                  Belum ada dokter terdaftar.
+                </div>
+              ) : (
+                dokterList.map((dokter) => {
+                  const isSelected = selectedDokter === dokter.id;
+                  const nama = dokter.profile.full_name;
+                  const avatar = dokterAvatar(nama);
+                  const identifier = dokterIdentifier(dokter);
+                  return (
+                    <button
+                      key={dokter.id}
+                      type="button"
+                      onClick={() => setSelectedDokter(dokter.id)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 12,
+                        padding: "12px 14px",
+                        background: "#fff",
+                        border: isSelected ? "2px solid #2A6B9B" : "1.5px solid #e5e7eb",
+                        borderRadius: 14, cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                        boxShadow: isSelected ? "0 4px 14px rgba(42,107,155,0.12)" : "0 1px 4px rgba(0,0,0,0.04)",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      {/* Avatar */}
                       <div style={{
-                        width: 20, height: 20, borderRadius: "50%",
-                        background: "#2A6B9B",
+                        width: 44, height: 44, borderRadius: "50%",
+                        background: isSelected
+                          ? "linear-gradient(135deg, #1d4e73, #2A6B9B)"
+                          : "linear-gradient(135deg, #e5e7eb, #d1d5db)",
                         display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                        boxShadow: isSelected ? "0 4px 10px rgba(42,107,155,0.3)" : "none",
                       }}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white"
-                          strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="m9 11 3 3L22 4"/>
-                        </svg>
+                        <span style={{ fontSize: 13, fontWeight: 900, color: isSelected ? "#fff" : "#9ca3af" }}>
+                          {avatar}
+                        </span>
                       </div>
-                    )}
-                  </button>
-                );
-              })}
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 800, color: "#111827" }}>{nama}</p>
+                        <p style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                          {dokter.spesialisasi || "Dokter Gigi Umum"}
+                          {dokter.pengalaman_tahun > 0 && (
+                            <>
+                              <span style={{ color: "#d1d5db" }}> · </span>
+                              {dokter.pengalaman_tahun} thn
+                            </>
+                          )}
+                        </p>
+                        {identifier && (
+                          <p style={{ fontSize: 10, color: "#9ca3af", marginTop: 3, fontWeight: 600 }}>
+                            {identifier}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Rating */}
+                      {dokter.rating > 0 && (
+                        <div style={{
+                          display: "flex", alignItems: "center", gap: 3,
+                          background: "#fffbeb", borderRadius: 8, padding: "3px 7px",
+                          border: "1px solid #fde68a",
+                        }}>
+                          <span style={{ fontSize: 10 }}>⭐</span>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: "#92400e" }}>
+                            {dokter.rating.toFixed(1)}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Check */}
+                      {isSelected && (
+                        <div style={{
+                          width: 20, height: 20, borderRadius: "50%",
+                          background: "#2A6B9B",
+                          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                        }}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white"
+                            strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="m9 11 3 3L22 4"/>
+                          </svg>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })
+              )}
             </div>
           </section>
 
@@ -647,7 +810,13 @@ export default function FormBuatJanji({ onBack, onSuccess }: Props) {
             {/* Detail rows */}
             <div style={{ padding: "4px 0" }}>
               {[
-                { label: "Dokter", value: dokterData ? `${dokterData.nama} · ${dokterData.spesialis}` : "-", icon: "👨‍⚕️" },
+                {
+                  label: "Dokter",
+                  value: dokterData
+                    ? `${dokterData.profile.full_name} · ${dokterData.spesialisasi || "Dokter Gigi Umum"}`
+                    : "-",
+                  icon: "👨‍⚕️",
+                },
                 { label: "Tanggal", value: dayData?.full ?? "-", icon: "📅" },
                 { label: "Waktu", value: selectedWaktu ? `${selectedWaktu} WIB` : "-", icon: "⏰" },
                 { label: "Durasi", value: layananData?.durasi ?? "-", icon: "⏱" },
@@ -702,7 +871,7 @@ export default function FormBuatJanji({ onBack, onSuccess }: Props) {
             />
           </div>
 
-          {/* Pasien info */}
+          {/* Pasien info — dari sesi login */}
           <div style={{
             display: "flex", alignItems: "center", gap: 12,
             background: "#f8fafc", border: "1px solid #f1f5f9",
@@ -713,11 +882,11 @@ export default function FormBuatJanji({ onBack, onSuccess }: Props) {
               background: "linear-gradient(135deg, #3b9bd4, #1d4060)",
               display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
             }}>
-              <span style={{ color: "#fff", fontSize: 13, fontWeight: 900 }}>AS</span>
+              <span style={{ color: "#fff", fontSize: 13, fontWeight: 900 }}>{getUserInitials(user)}</span>
             </div>
             <div>
-              <p style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>Ahmad Surya</p>
-              <p style={{ fontSize: 11, color: "#9ca3af" }}>No. RM: 0092-1249-11</p>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{getUserDisplayName(user)}</p>
+              <p style={{ fontSize: 11, color: "#9ca3af" }}>{user?.email ?? " "}</p>
             </div>
             <div style={{ marginLeft: "auto" }}>
               <span style={{
@@ -730,40 +899,87 @@ export default function FormBuatJanji({ onBack, onSuccess }: Props) {
             </div>
           </div>
 
+          {/* Submit error */}
+          {submitError && (
+            <div
+              role="alert"
+              style={{
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: 12,
+                padding: "10px 12px",
+                fontSize: 12,
+                color: "#b91c1c",
+                fontWeight: 600,
+              }}
+            >
+              ⚠ {submitError}
+            </div>
+          )}
+
           {/* Submit */}
           <button
             id="btn-konfirmasi-janji"
+            type="button"
             onClick={handleSubmit}
+            disabled={submitting}
             style={{
               width: "100%", padding: "15px 0",
-              background: "linear-gradient(135deg, #059669, #34d399)",
+              background: submitting
+                ? "#9ca3af"
+                : "linear-gradient(135deg, #059669, #34d399)",
               border: "none", color: "#fff",
               fontWeight: 900, fontSize: 15, borderRadius: 14,
-              cursor: "pointer", fontFamily: "inherit",
-              boxShadow: "0 8px 24px rgba(5,150,105,0.3)",
+              cursor: submitting ? "wait" : "pointer", fontFamily: "inherit",
+              boxShadow: submitting ? "none" : "0 8px 24px rgba(5,150,105,0.3)",
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
               transition: "transform 0.15s ease",
               letterSpacing: "-0.01em",
+              opacity: submitting ? 0.85 : 1,
             }}
-            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.98)")}
+            onMouseDown={(e) => {
+              if (!submitting) e.currentTarget.style.transform = "scale(0.98)";
+            }}
             onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white"
-              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M8 2v4"/><path d="M16 2v4"/>
-              <rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>
-              <path d="m9 16 2 2 4-4"/>
-            </svg>
-            Konfirmasi Janji Temu
+            {submitting ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 16, height: 16, borderRadius: "50%",
+                    border: "2.5px solid rgba(255,255,255,0.5)",
+                    borderTopColor: "#fff",
+                    animation: "spin 0.8s linear infinite",
+                  }}
+                />
+                Mengirim…
+              </>
+            ) : (
+              <>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white"
+                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M8 2v4"/><path d="M16 2v4"/>
+                  <rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>
+                  <path d="m9 16 2 2 4-4"/>
+                </svg>
+                Konfirmasi Janji Temu
+              </>
+            )}
           </button>
 
           <button
+            type="button"
             onClick={() => setStep(2)}
+            disabled={submitting}
             style={{
               width: "100%", padding: "11px 0",
               background: "transparent", border: "1.5px solid #e5e7eb",
               color: "#6b7280", fontWeight: 600, fontSize: 13,
-              borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
+              borderRadius: 14,
+              cursor: submitting ? "not-allowed" : "pointer",
+              opacity: submitting ? 0.5 : 1,
+              fontFamily: "inherit",
             }}
           >
             ← Ubah Jadwal

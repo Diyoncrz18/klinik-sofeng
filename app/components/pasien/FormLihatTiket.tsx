@@ -4,14 +4,82 @@
  * FormLihatTiket — Halaman Detail Tiket Digital
  * ──────────────────────────────────────────────────────────
  * Menampilkan tiket / boarding-pass layaknya untuk pemeriksaan.
- * Memiliki QR Code dan detail lengkap untuk ditunjukkan ke resepsionis.
+ * Data diambil real dari `GET /api/appointments/:id`.
  */
 
+import { useEffect, useState } from "react";
+
+import { getAppointment } from "@/lib/appointments";
+import { appointmentTitle, dokterFullName, dokterSpesialisasi } from "@/lib/appointment-display";
+import type { Appointment } from "@/lib/types";
+
 interface Props {
+  /** UUID appointment dari URL `/pasien/jadwal/:id/tiket`. */
+  appointmentId: string;
   onBack: () => void;
 }
 
-export default function FormLihatTiket({ onBack }: Props) {
+// Format tanggal Indonesia panjang: "22 Mei 2026"
+function formatTanggalLong(yyyymmdd: string): string {
+  const d = new Date(`${yyyymmdd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return yyyymmdd;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(d);
+}
+
+function formatJamShort(hhmmss: string): string {
+  return hhmmss.slice(0, 5);
+}
+
+function shortApptId(id: string): string {
+  // Tampilkan 8 char pertama uuid sebagai "APT-XXXXXXXX".
+  return `APT-${id.slice(0, 8).toUpperCase()}`;
+}
+
+function statusBadge(appt: Appointment): { label: string; bg: string } {
+  switch (appt.status) {
+    case "menunggu":         return { label: "Menunggu",     bg: "rgba(255,255,255,0.2)" };
+    case "sedang_ditangani": return { label: "Berlangsung",  bg: "rgba(74,222,128,0.32)" };
+    case "selesai":          return { label: "Selesai",      bg: "rgba(34,197,94,0.3)" };
+    case "dibatalkan":       return { label: "Dibatalkan",   bg: "rgba(239,68,68,0.3)" };
+    case "tidak_hadir":      return { label: "Tidak Hadir",  bg: "rgba(156,163,175,0.3)" };
+    case "terjadwal":
+    default:                 return { label: "Mendatang",    bg: "rgba(255,255,255,0.2)" };
+  }
+}
+
+export default function FormLihatTiket({ appointmentId, onBack }: Props) {
+  const [appt, setAppt] = useState<Appointment | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getAppointment(appointmentId)
+      .then((data) => {
+        if (!alive) return;
+        setAppt(data);
+        setErrorMsg(null);
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        setErrorMsg(
+          err instanceof Error ? err.message : "Gagal memuat tiket.",
+        );
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [appointmentId]);
+
+  const badge = appt ? statusBadge(appt) : { label: "Memuat…", bg: "rgba(255,255,255,0.2)" };
+  const pasienName = appt?.pasien?.profile.full_name ?? "—";
   return (
     <div style={{ paddingBottom: 24, animation: "pasienFadeIn 0.2s ease-out" }}>
       
@@ -74,17 +142,17 @@ export default function FormLihatTiket({ onBack }: Props) {
             display: "flex", flexDirection: "column", alignItems: "center",
           }}>
             <span style={{
-              background: "rgba(255,255,255,0.2)", backdropFilter: "blur(4px)",
+              background: badge.bg, backdropFilter: "blur(4px)",
               padding: "4px 12px", borderRadius: 999, fontSize: 10, fontWeight: 800,
               letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12,
             }}>
-              Mendatang
+              {badge.label}
             </span>
             <h3 style={{ fontSize: 20, fontWeight: 900, letterSpacing: "-0.02em", marginBottom: 4 }}>
-              Kontrol Kawat Gigi
+              {appt ? appointmentTitle(appt) : "Memuat tiket…"}
             </h3>
             <p style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", fontWeight: 500 }}>
-              ID: APT-109283
+              ID: {appt ? shortApptId(appt.id) : "—"}
             </p>
           </div>
 
@@ -94,24 +162,24 @@ export default function FormLihatTiket({ onBack }: Props) {
               {/* Kolom 1 */}
               <div>
                 <p style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Pasien</p>
-                <p style={{ fontSize: 14, color: "#111827", fontWeight: 800 }}>Ahmad Surya</p>
+                <p style={{ fontSize: 14, color: "#111827", fontWeight: 800 }}>{loading ? "—" : pasienName}</p>
               </div>
               {/* Kolom 2 */}
               <div style={{ textAlign: "right" }}>
                 <p style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Tanggal</p>
-                <p style={{ fontSize: 14, color: "#111827", fontWeight: 800 }}>22 Mei 2026</p>
+                <p style={{ fontSize: 14, color: "#111827", fontWeight: 800 }}>{appt ? formatTanggalLong(appt.tanggal) : "—"}</p>
               </div>
               
               {/* Kolom 3 */}
               <div>
                 <p style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Dokter</p>
-                <p style={{ fontSize: 14, color: "#111827", fontWeight: 800 }}>Dr. Rina Santoso</p>
-                <p style={{ fontSize: 11, color: "#6b7280" }}>Spesialis Ortodonti</p>
+                <p style={{ fontSize: 14, color: "#111827", fontWeight: 800 }}>{appt ? dokterFullName(appt) : "—"}</p>
+                <p style={{ fontSize: 11, color: "#6b7280" }}>{appt ? dokterSpesialisasi(appt) : " "}</p>
               </div>
               {/* Kolom 4 */}
               <div style={{ textAlign: "right" }}>
                 <p style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Waktu</p>
-                <p style={{ fontSize: 18, color: "#2A6B9B", fontWeight: 900 }}>09:00</p>
+                <p style={{ fontSize: 18, color: "#2A6B9B", fontWeight: 900 }}>{appt ? formatJamShort(appt.jam) : "—"}</p>
                 <p style={{ fontSize: 11, color: "#6b7280" }}>WIB</p>
               </div>
             </div>
@@ -160,6 +228,23 @@ export default function FormLihatTiket({ onBack }: Props) {
             Harap tiba di klinik selambatnya 15 menit sebelum waktu yang telah ditentukan untuk proses registrasi dokumen jika diperlukan.
           </p>
         </div>
+
+        {errorMsg && (
+          <div
+            role="alert"
+            style={{
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 12,
+              padding: "12px 14px",
+              fontSize: 12,
+              color: "#b91c1c",
+              fontWeight: 600,
+            }}
+          >
+            ⚠ {errorMsg}
+          </div>
+        )}
 
       </div>
 

@@ -1,26 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 /**
  * TabHome — Halaman Dashboard Pasien (URL-based)
  * ────────────────────────────────────────────
- * Layout premium mobile app dengan:
- * - Header sticky glassmorphism + greeting dinamis
- * - Hero card jadwal terdekat dengan gradient rich
- * - Grid layanan cepat berwarna
- * - Banner promo elegan
- * - Statistik kesehatan ringkas
- * - Kunjungan terakhir dengan timeline
+ * Wired ke real backend Phase 2A:
+ *   • Header pakai data user dari `useAuth()` (nama + inisial).
+ *   • Hero card menampilkan upcoming appointment terdekat (status:
+ *     terjadwal, menunggu, sedang_ditangani; tanggal >= today; sort
+ *     tanggal+jam asc). Skeleton saat loading, empty state bila kosong.
+ *   • Stats counter dihitung dari hasil fetch (kunjungan = selesai,
+ *     jadwal aktif = upcoming).
+ *   • Recent visits → daftar appointment status "selesai" (max 2),
+ *     dengan empty state.
  *
- * Navigasi memakai URL routing (Next.js router) lewat helper di
- * `pasienRouting.ts`, bukan lagi state local di PasienShell.
+ * Layanan Cepat & Promo Banner masih statis (out-of-scope Phase 2A).
  */
 
-import { PASIEN_PATHS } from "./pasienRouting";
+import { PASIEN_PATHS, PASIEN_DYNAMIC } from "./pasienRouting";
+import { useAuth } from "@/app/contexts/AuthContext";
+import { listAppointments } from "@/lib/appointments";
+import { formatJamRange } from "@/lib/format";
+import {
+  appointmentTitle,
+  dokterFullName,
+  dokterSpesialisasi,
+} from "@/lib/appointment-display";
+import {
+  getUserDisplayName,
+  getUserInitials,
+} from "@/lib/types";
+import type { Appointment, AppointmentStatus } from "@/lib/types";
 
-// Fungsi greeting berdasarkan waktu
+// ── Konstanta status & helpers ────────────────────────────────────────
+
+const UPCOMING_STATUSES: ReadonlyArray<AppointmentStatus> = [
+  "terjadwal",
+  "menunggu",
+  "sedang_ditangani",
+];
+
 function getGreeting() {
   const hour = new Date().getHours();
   if (hour < 11) return "Selamat Pagi";
@@ -29,9 +50,104 @@ function getGreeting() {
   return "Selamat Malam";
 }
 
+function todayIsoLocal(): string {
+  // YYYY-MM-DD pada timezone lokal (hindari UTC drift untuk batas hari).
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getMonthLabel(yyyymmdd: string): string {
+  const d = new Date(`${yyyymmdd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("id-ID", { month: "short" })
+    .format(d)
+    .toUpperCase();
+}
+
+function getDayLabel(yyyymmdd: string): string {
+  const d = new Date(`${yyyymmdd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("id-ID", { day: "numeric" }).format(d);
+}
+
+function formatVisitDate(yyyymmdd: string): string {
+  const d = new Date(`${yyyymmdd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return yyyymmdd;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(d);
+}
+
 export default function TabHome() {
   const router = useRouter();
+  const { user } = useAuth();
   const [greeting] = useState(getGreeting);
+
+  // ── Data state ──────────────────────────────────────────────────
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    listAppointments()
+      .then((items) => {
+        if (!alive) return;
+        setAppointments(items);
+        setErrorMsg(null);
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        const msg =
+          err instanceof Error ? err.message : "Gagal memuat janji temu.";
+        setErrorMsg(msg);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // ── Derived state ──────────────────────────────────────────────
+  const today = todayIsoLocal();
+
+  const upcoming = useMemo(() => {
+    return appointments
+      .filter(
+        (a) => UPCOMING_STATUSES.includes(a.status) && a.tanggal >= today,
+      )
+      .sort((a, b) => {
+        if (a.tanggal !== b.tanggal) return a.tanggal.localeCompare(b.tanggal);
+        return a.jam.localeCompare(b.jam);
+      });
+  }, [appointments, today]);
+
+  const finished = useMemo(() => {
+    return appointments
+      .filter((a) => a.status === "selesai")
+      .sort((a, b) => {
+        if (a.tanggal !== b.tanggal) return b.tanggal.localeCompare(a.tanggal);
+        return b.jam.localeCompare(a.jam);
+      });
+  }, [appointments]);
+
+  const nextAppt = upcoming[0] ?? null;
+  const recentVisits = finished.slice(0, 2);
+  const counts = {
+    visits: finished.length,
+    active: upcoming.length,
+    bills: 0, // tagihan belum punya domain endpoint
+  };
+
+  const displayName = getUserDisplayName(user) || "Pasien";
+  const initials = getUserInitials(user) || "PS";
 
   return (
     <div style={{ paddingBottom: 8 }}>
@@ -63,7 +179,7 @@ export default function TabHome() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button
             onClick={() => router.push(PASIEN_PATHS.profil)}
-            aria-label="Buka profil Ahmad Surya"
+            aria-label={`Buka profil ${displayName}`}
             style={{ position: "relative", cursor: "pointer", background: "none", border: "none", padding: 0, flexShrink: 0 }}
           >
             {/* Avatar with gradient ring */}
@@ -73,7 +189,7 @@ export default function TabHome() {
               display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 0 0 2.5px white, 0 0 0 4px rgba(42,107,155,0.25)",
             }}>
-              <span style={{ color: "#fff", fontSize: 14, fontWeight: 900, letterSpacing: 0.5 }}>AS</span>
+              <span style={{ color: "#fff", fontSize: 14, fontWeight: 900, letterSpacing: 0.5 }}>{initials}</span>
             </div>
             {/* Online indicator */}
             <span style={{
@@ -89,7 +205,7 @@ export default function TabHome() {
               {greeting} 👋
             </p>
             <h1 style={{ fontSize: 16, fontWeight: 800, color: "#111827", lineHeight: 1, letterSpacing: "-0.01em" }}>
-              Ahmad Surya
+              {displayName}
             </h1>
           </div>
         </div>
@@ -98,7 +214,7 @@ export default function TabHome() {
         <button
           id="btn-notifikasi"
           onClick={() => router.push(PASIEN_PATHS.notifikasi)}
-          aria-label="Notifikasi (1 baru)"
+          aria-label="Notifikasi"
           style={{
             position: "relative",
             width: 40, height: 40, borderRadius: 12,
@@ -168,141 +284,38 @@ export default function TabHome() {
         </div>
 
         {/* ── Hero Card — Jadwal Terdekat ─────────────── */}
-        <div style={{
-          borderRadius: 20,
-          overflow: "hidden",
-          position: "relative",
-          boxShadow: "0 12px 32px rgba(29,78,115,0.28)",
-        }}>
-          {/* Background gradient */}
-          <div style={{
-            position: "absolute", inset: 0,
-            background: "linear-gradient(145deg, #0f3a5c 0%, #1d5a8a 45%, #2A6B9B 100%)",
-          }} />
-          {/* Decorative circles */}
-          <div style={{
-            position: "absolute", top: -40, right: -30,
-            width: 160, height: 160, borderRadius: "50%",
-            background: "rgba(255,255,255,0.07)",
-          }} aria-hidden="true" />
-          <div style={{
-            position: "absolute", bottom: -30, left: -20,
-            width: 120, height: 120, borderRadius: "50%",
-            background: "rgba(115,199,227,0.12)",
-          }} aria-hidden="true" />
-          <div style={{
-            position: "absolute", top: "50%", right: 16,
-            width: 80, height: 80, borderRadius: "50%",
-            background: "rgba(255,255,255,0.05)",
-          }} aria-hidden="true" />
+        {loading ? (
+          <HeroSkeleton />
+        ) : nextAppt ? (
+          <HeroAppointmentCard
+            appt={nextAppt}
+            onViewTicket={() =>
+              router.push(PASIEN_DYNAMIC.jadwalTiket(nextAppt.id))
+            }
+          />
+        ) : (
+          <HeroEmptyState
+            onCreate={() => router.push(PASIEN_PATHS.buatJanji)}
+          />
+        )}
 
-          {/* Card content */}
-          <div style={{ position: "relative", zIndex: 1, padding: "20px 20px 18px" }}>
-            {/* Top Row */}
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
-              {/* Badge */}
-              <div style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
-                background: "rgba(255,255,255,0.12)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                borderRadius: 999, padding: "5px 10px",
-                backdropFilter: "blur(8px)",
-              }}>
-                <span style={{
-                  width: 6, height: 6, borderRadius: "50%", background: "#4ade80",
-                  boxShadow: "0 0 6px rgba(74,222,128,0.8)",
-                  display: "inline-block",
-                }} aria-hidden="true" />
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", letterSpacing: "0.08em" }}>
-                  JADWAL TERDEKAT
-                </span>
-              </div>
-
-              {/* Mini Calendar Widget */}
-              <div style={{
-                background: "rgba(255,255,255,0.12)",
-                border: "1px solid rgba(255,255,255,0.18)",
-                borderRadius: 14, padding: "8px 12px",
-                textAlign: "center", minWidth: 52,
-                backdropFilter: "blur(8px)",
-              }}>
-                <p style={{ fontSize: 9, fontWeight: 800, color: "rgba(186,230,253,0.8)", textTransform: "uppercase", letterSpacing: "0.1em" }}>JUN</p>
-                <p style={{ fontSize: 24, fontWeight: 900, color: "#fff", lineHeight: 1, marginTop: 1 }}>14</p>
-              </div>
-            </div>
-
-            {/* Title */}
-            <h2 style={{ fontSize: 19, fontWeight: 800, color: "#fff", marginBottom: 4, letterSpacing: "-0.02em", lineHeight: 1.2 }}>
-              Kontrol Kawat Gigi
-            </h2>
-
-            {/* Doctor */}
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 16 }}>
-              <div style={{
-                width: 20, height: 20, borderRadius: "50%",
-                background: "rgba(255,255,255,0.2)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white"
-                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="8" r="4" />
-                  <path d="M20 21a8 8 0 1 0-16 0" />
-                </svg>
-              </div>
-              <span style={{ fontSize: 12, color: "rgba(186,230,253,0.85)", fontWeight: 500 }}>
-                Dr. Rina Santoso, Sp.KG
-              </span>
-            </div>
-
-            {/* Time + Location Row */}
-            <div style={{
-              background: "rgba(0,0,0,0.18)",
-              borderRadius: 14, padding: "10px 14px",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {/* Clock icon */}
-                <div style={{
-                  width: 34, height: 34, borderRadius: 10,
-                  background: "rgba(255,255,255,0.12)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M12 6v6l4 2" />
-                  </svg>
-                </div>
-                <div>
-                  <p style={{ fontSize: 10, color: "rgba(186,230,253,0.65)", fontWeight: 500, marginBottom: 1 }}>
-                    Waktu Kunjungan
-                  </p>
-                  <p style={{ fontSize: 13, color: "#fff", fontWeight: 700, letterSpacing: "0.02em" }}>
-                    09:00 – 09:30 WIB
-                  </p>
-                </div>
-              </div>
-
-              {/* Lihat Tiket button */}
-              <button
-                aria-label="Lihat tiket appointment"
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  background: "#fff",
-                  borderRadius: 10, padding: "7px 12px",
-                  border: "none", cursor: "pointer",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1d4e73"
-                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
-                </svg>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#1d4e73", whiteSpace: "nowrap" }}>Tiket</span>
-              </button>
-            </div>
+        {/* Error notice (jika fetch gagal) */}
+        {errorMsg && (
+          <div
+            role="alert"
+            style={{
+              background: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 14,
+              padding: "12px 14px",
+              fontSize: 12,
+              color: "#b91c1c",
+              fontWeight: 600,
+            }}
+          >
+            ⚠ {errorMsg}
           </div>
-        </div>
+        )}
 
         {/* ── Layanan Cepat ──────────────────────────── */}
         <section>
@@ -374,9 +387,9 @@ export default function TabHome() {
           gap: 10,
         }}>
           {[
-            { value: "8", label: "Kunjungan", color: "#2A6B9B", bg: "#eff6ff", border: "#bfdbfe" },
-            { value: "1", label: "Jadwal Aktif", color: "#059669", bg: "#ecfdf5", border: "#a7f3d0" },
-            { value: "0", label: "Tagihan", color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
+            { value: loading ? "—" : String(counts.visits), label: "Kunjungan", color: "#2A6B9B", bg: "#eff6ff", border: "#bfdbfe" },
+            { value: loading ? "—" : String(counts.active), label: "Jadwal Aktif", color: "#059669", bg: "#ecfdf5", border: "#a7f3d0" },
+            { value: loading ? "—" : String(counts.bills), label: "Tagihan", color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
           ].map((stat, i) => (
             <div key={i} style={{
               background: stat.bg,
@@ -476,61 +489,23 @@ export default function TabHome() {
             </button>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {RECENT_VISITS.map((visit, i) => (
-              <button
-                key={i}
-                style={{
-                  display: "flex", alignItems: "center", gap: 14,
-                  background: "#fff",
-                  border: "1px solid rgba(115,199,227,0.15)",
-                  borderRadius: 16, padding: "14px 16px",
-                  cursor: "pointer", width: "100%", textAlign: "left",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
-                  transition: "box-shadow 0.2s ease",
-                  fontFamily: "inherit",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)")}
-                onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.04)")}
-              >
-                {/* Icon */}
-                <div style={{
-                  width: 42, height: 42, borderRadius: 14,
-                  background: visit.iconBg, color: visit.iconColor, flexShrink: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                }}>
-                  {visit.icon}
-                </div>
-
-                {/* Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{
-                    fontSize: 13, fontWeight: 700, color: "#1f2937",
-                    marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
-                    {visit.title}
-                  </p>
-                  <p style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500 }}>
-                    {visit.date} · {visit.doctor}
-                  </p>
-                </div>
-
-                {/* Amount + status */}
-                <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 4 }}>
-                    {visit.amount}
-                  </p>
-                  <span style={{
-                    fontSize: 9, fontWeight: 700,
-                    color: visit.payColor, background: visit.payBg,
-                    padding: "2px 7px", borderRadius: 20,
-                  }}>
-                    {visit.payLabel}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
+          {loading ? (
+            <VisitsSkeleton />
+          ) : recentVisits.length === 0 ? (
+            <RecentVisitsEmpty />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {recentVisits.map((appt) => (
+                <RecentVisitCard
+                  key={appt.id}
+                  appt={appt}
+                  onClick={() =>
+                    router.push(PASIEN_DYNAMIC.jadwalTiket(appt.id))
+                  }
+                />
+              ))}
+            </div>
+          )}
         </section>
 
       </div>
@@ -604,40 +579,388 @@ const QUICK_ACTIONS = [
   },
 ];
 
-const RECENT_VISITS = [
-  {
-    title: "Pembersihan Karang Gigi",
-    date: "22 Mei 2026",
-    doctor: "Dr. Rina",
-    amount: "Rp 450.000",
-    payLabel: "Lunas",
-    payColor: "#059669",
-    payBg: "#dcfce7",
-    iconBg: "#ecfdf5",
-    iconColor: "#059669",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
-      </svg>
-    ),
-  },
-  {
-    title: "Pemasangan Kawat Gigi",
-    date: "10 Apr 2026",
-    doctor: "Dr. Rina",
-    amount: "Rp 8.500.000",
-    payLabel: "Cicilan",
-    payColor: "#d97706",
-    payBg: "#fef3c7",
-    iconBg: "#eff6ff",
-    iconColor: "#2A6B9B",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="18" cy="18" r="3" /><circle cx="6" cy="6" r="3" />
-        <path d="M13 6h3a2 2 0 0 1 2 2v7" /><path d="m11 18-5-5 5-5" />
-      </svg>
-    ),
-  },
-];
+// ════════════════════════════════════════════════════════════
+// SUBCOMPONENTS — Hero & RecentVisits states
+// ════════════════════════════════════════════════════════════
+
+function HeroSkeleton() {
+  return (
+    <div
+      aria-busy="true"
+      aria-label="Memuat janji terdekat"
+      style={{
+        borderRadius: 20,
+        height: 184,
+        background:
+          "linear-gradient(145deg, #cbd5e1 0%, #e2e8f0 100%)",
+        boxShadow: "0 12px 32px rgba(15,42,77,0.12)",
+      }}
+    />
+  );
+}
+
+function HeroEmptyState({ onCreate }: { onCreate: () => void }) {
+  return (
+    <div
+      style={{
+        borderRadius: 20,
+        background: "linear-gradient(145deg, #1d4e73 0%, #2A6B9B 100%)",
+        padding: "22px 22px",
+        boxShadow: "0 12px 32px rgba(29,78,115,0.28)",
+        color: "#fff",
+      }}
+    >
+      <p
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          color: "rgba(186,230,253,0.85)",
+          textTransform: "uppercase",
+          marginBottom: 6,
+        }}
+      >
+        BELUM ADA JADWAL
+      </p>
+      <h2
+        style={{
+          fontSize: 18,
+          fontWeight: 800,
+          letterSpacing: "-0.02em",
+          marginBottom: 4,
+        }}
+      >
+        Buat Janji Pertama Anda
+      </h2>
+      <p
+        style={{
+          fontSize: 12,
+          color: "rgba(186,230,253,0.85)",
+          marginBottom: 14,
+          lineHeight: 1.45,
+        }}
+      >
+        Pilih dokter dan jadwal yang sesuai langsung dari aplikasi.
+      </p>
+      <button
+        onClick={onCreate}
+        style={{
+          background: "#fff",
+          color: "#1d4e73",
+          fontSize: 13,
+          fontWeight: 800,
+          padding: "10px 18px",
+          borderRadius: 12,
+          border: "none",
+          cursor: "pointer",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
+        }}
+      >
+        Buat Janji Sekarang →
+      </button>
+    </div>
+  );
+}
+
+function HeroAppointmentCard({
+  appt,
+  onViewTicket,
+}: {
+  appt: Appointment;
+  onViewTicket: () => void;
+}) {
+  return (
+    <div
+      style={{
+        borderRadius: 20,
+        overflow: "hidden",
+        position: "relative",
+        boxShadow: "0 12px 32px rgba(29,78,115,0.28)",
+      }}
+    >
+      {/* Background gradient */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(145deg, #0f3a5c 0%, #1d5a8a 45%, #2A6B9B 100%)",
+        }}
+      />
+      {/* Decorative circles */}
+      <div
+        style={{
+          position: "absolute", top: -40, right: -30,
+          width: 160, height: 160, borderRadius: "50%",
+          background: "rgba(255,255,255,0.07)",
+        }}
+        aria-hidden="true"
+      />
+      <div
+        style={{
+          position: "absolute", bottom: -30, left: -20,
+          width: 120, height: 120, borderRadius: "50%",
+          background: "rgba(115,199,227,0.12)",
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Card content */}
+      <div style={{ position: "relative", zIndex: 1, padding: "20px 20px 18px" }}>
+        {/* Top Row */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            marginBottom: 14,
+          }}
+        >
+          {/* Badge */}
+          <div
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              background: "rgba(255,255,255,0.12)",
+              border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: 999, padding: "5px 10px",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            <span
+              style={{
+                width: 6, height: 6, borderRadius: "50%",
+                background: "#4ade80",
+                boxShadow: "0 0 6px rgba(74,222,128,0.8)",
+                display: "inline-block",
+              }}
+              aria-hidden="true"
+            />
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", letterSpacing: "0.08em" }}>
+              JADWAL TERDEKAT
+            </span>
+          </div>
+
+          {/* Mini Calendar Widget */}
+          <div
+            style={{
+              background: "rgba(255,255,255,0.12)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              borderRadius: 14, padding: "8px 12px",
+              textAlign: "center", minWidth: 52,
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            <p style={{ fontSize: 9, fontWeight: 800, color: "rgba(186,230,253,0.8)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+              {getMonthLabel(appt.tanggal)}
+            </p>
+            <p style={{ fontSize: 24, fontWeight: 900, color: "#fff", lineHeight: 1, marginTop: 1 }}>
+              {getDayLabel(appt.tanggal)}
+            </p>
+          </div>
+        </div>
+
+        {/* Title */}
+        <h2 style={{ fontSize: 19, fontWeight: 800, color: "#fff", marginBottom: 4, letterSpacing: "-0.02em", lineHeight: 1.2 }}>
+          {appointmentTitle(appt)}
+        </h2>
+
+        {/* Doctor */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 16 }}>
+          <div
+            style={{
+              width: 20, height: 20, borderRadius: "50%",
+              background: "rgba(255,255,255,0.2)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="white"
+              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M20 21a8 8 0 1 0-16 0" />
+            </svg>
+          </div>
+          <span style={{ fontSize: 12, color: "rgba(186,230,253,0.85)", fontWeight: 500 }}>
+            {dokterFullName(appt)} — {dokterSpesialisasi(appt)}
+          </span>
+        </div>
+
+        {/* Time + Action Row */}
+        <div
+          style={{
+            background: "rgba(0,0,0,0.18)",
+            borderRadius: 14, padding: "10px 14px",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div
+              style={{
+                width: 34, height: 34, borderRadius: 10,
+                background: "rgba(255,255,255,0.12)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 6v6l4 2" />
+              </svg>
+            </div>
+            <div>
+              <p style={{ fontSize: 10, color: "rgba(186,230,253,0.65)", fontWeight: 500, marginBottom: 1 }}>
+                Waktu Kunjungan
+              </p>
+              <p style={{ fontSize: 13, color: "#fff", fontWeight: 700, letterSpacing: "0.02em" }}>
+                {formatJamRange(appt.jam)}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onViewTicket}
+            aria-label="Lihat tiket appointment"
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              background: "#fff",
+              borderRadius: 10, padding: "7px 12px",
+              border: "none", cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1d4e73"
+              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
+            </svg>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#1d4e73", whiteSpace: "nowrap" }}>
+              Tiket
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VisitsSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {[0, 1].map((i) => (
+        <div
+          key={i}
+          aria-busy="true"
+          style={{
+            display: "flex", alignItems: "center", gap: 14,
+            background: "#fff",
+            border: "1px solid rgba(115,199,227,0.15)",
+            borderRadius: 16, padding: "14px 16px",
+            boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+          }}
+        >
+          <div
+            style={{
+              width: 42, height: 42, borderRadius: 14,
+              background: "#f1f5f9",
+            }}
+          />
+          <div style={{ flex: 1 }}>
+            <div style={{ height: 12, width: "60%", background: "#e2e8f0", borderRadius: 6, marginBottom: 6 }} />
+            <div style={{ height: 10, width: "40%", background: "#e2e8f0", borderRadius: 6 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RecentVisitsEmpty() {
+  return (
+    <div
+      style={{
+        background: "#fff",
+        border: "1px dashed #cbd5e1",
+        borderRadius: 16,
+        padding: "22px 18px",
+        textAlign: "center",
+        color: "#6b7280",
+        fontSize: 12,
+      }}
+    >
+      Belum ada riwayat kunjungan.
+    </div>
+  );
+}
+
+function RecentVisitCard({
+  appt,
+  onClick,
+}: {
+  appt: Appointment;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 14,
+        background: "#fff",
+        border: "1px solid rgba(115,199,227,0.15)",
+        borderRadius: 16, padding: "14px 16px",
+        cursor: "pointer", width: "100%", textAlign: "left",
+        boxShadow: "0 2px 12px rgba(0,0,0,0.04)",
+        transition: "box-shadow 0.2s ease",
+        fontFamily: "inherit",
+      }}
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)")
+      }
+      onMouseLeave={(e) =>
+        (e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.04)")
+      }
+    >
+      {/* Icon */}
+      <div
+        style={{
+          width: 42, height: 42, borderRadius: 14,
+          background: "#ecfdf5", color: "#059669",
+          flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M9 12l2 2 4-4" />
+          <circle cx="12" cy="12" r="10" />
+        </svg>
+      </div>
+
+      {/* Info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p
+          style={{
+            fontSize: 13, fontWeight: 700, color: "#1f2937",
+            marginBottom: 3,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}
+        >
+          {appointmentTitle(appt)}
+        </p>
+        <p style={{ fontSize: 11, color: "#9ca3af", fontWeight: 500 }}>
+          {formatVisitDate(appt.tanggal)} · {dokterFullName(appt)}
+        </p>
+      </div>
+
+      {/* Status pill */}
+      <div style={{ textAlign: "right", flexShrink: 0 }}>
+        <span
+          style={{
+            fontSize: 9, fontWeight: 700,
+            color: "#059669", background: "#dcfce7",
+            padding: "2px 7px", borderRadius: 20,
+          }}
+        >
+          Selesai
+        </span>
+      </div>
+    </button>
+  );
+}

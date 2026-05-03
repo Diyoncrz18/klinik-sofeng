@@ -18,9 +18,11 @@ import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
+import RequireAuth from "@/app/components/auth/RequireAuth";
+
 import PasienBottomNav from "./PasienBottomNav";
 import { PASIEN_STYLES } from "./pasienStyles";
-import { isPasienTabPath } from "./pasienRouting";
+import { isPasienAuthPath, isPasienTabPath, PASIEN_PATHS } from "./pasienRouting";
 
 interface PasienAppShellProps {
   children: ReactNode;
@@ -29,6 +31,7 @@ interface PasienAppShellProps {
 export default function PasienAppShell({ children }: PasienAppShellProps) {
   const pathname = usePathname() || "";
   const showBottomNav = isPasienTabPath(pathname);
+  const isAuthPage = isPasienAuthPath(pathname);
 
   // Pastikan body bersih dari class dokter (kalau user pindah dari /dokter ke /pasien)
   useEffect(() => {
@@ -41,7 +44,7 @@ export default function PasienAppShell({ children }: PasienAppShellProps) {
     if (main) main.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
   }, [pathname]);
 
-  return (
+  const shellContent = (
     <>
       {/* Inject CSS pasien (terpisah dari globals.css) */}
       <style dangerouslySetInnerHTML={{ __html: PASIEN_STYLES }} />
@@ -60,5 +63,15 @@ export default function PasienAppShell({ children }: PasienAppShellProps) {
         </div>
       </div>
     </>
+  );
+
+  // Halaman auth (login, register, welcome, dll) tidak butuh proteksi.
+  // Selain itu wajib login sebagai pasien.
+  if (isAuthPage) return shellContent;
+
+  return (
+    <RequireAuth role="pasien" redirectTo={PASIEN_PATHS.login}>
+      {shellContent}
+    </RequireAuth>
   );
 }

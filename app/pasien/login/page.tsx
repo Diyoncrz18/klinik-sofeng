@@ -14,10 +14,14 @@ import { useRouter } from "next/navigation";
 
 import BackHeader from "@/app/components/shared/BackHeader";
 import { PASIEN_PATHS } from "@/app/components/pasien/pasienRouting";
+import { useAuth } from "@/app/contexts/AuthContext";
+import { ApiError } from "@/lib/api";
+import { getUserRole } from "@/lib/types";
 
 export default function PasienLoginPage() {
   const router = useRouter();
   const formId = useId();
+  const { login } = useAuth();
 
   const [identitas, setIdentitas] = useState("");
   const [password, setPassword] = useState("");
@@ -34,18 +38,43 @@ export default function PasienLoginPage() {
     event.preventDefault();
     setError("");
 
-    if (!identitas.trim() || !password.trim()) {
-      setError("Email/HP dan password wajib diisi.");
+    const trimmed = identitas.trim();
+    if (!trimmed || !password.trim()) {
+      setError("Email dan password wajib diisi.");
+      return;
+    }
+
+    // Phone login belum didukung backend — tolak di FE supaya pesan error
+    // jelas (daripada Zod di BE bilang "Email tidak valid").
+    if (!trimmed.includes("@")) {
+      setError("Saat ini login hanya bisa dengan email. No. HP belum didukung.");
       return;
     }
 
     setIsLoading(true);
-    // Simulasi API call
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    setIsLoading(false);
+    try {
+      const user = await login(trimmed, password);
 
-    // Redirect ke halaman home pasien
-    router.push(PASIEN_PATHS.home);
+      const role = getUserRole(user);
+      if (role !== "pasien") {
+        setError(
+          role === "dokter"
+            ? "Akun ini terdaftar sebagai dokter. Silakan gunakan portal dokter."
+            : "Akun Anda tidak memiliki akses ke portal pasien.",
+        );
+        return;
+      }
+
+      router.replace(PASIEN_PATHS.home);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError("Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
