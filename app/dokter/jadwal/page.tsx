@@ -1,5 +1,3 @@
-import DoctorDesignPage from "@/app/components/dokter/DoctorDesignPage";
-
-export default async function JadwalPage() {
-  return <DoctorDesignPage initialPageId="jadwal" />;
+export default function JadwalPage() {
+  return null;
 }

@@ -1,11 +1,6 @@
 import { notFound } from "next/navigation";
 
-import DoctorDesignRoutePage from "@/app/components/dokter/DoctorDesignRoutePage";
-import type { DoctorDesignPageId } from "@/app/components/dokter/doctorDesignRouting";
-
-const jadwalDetailPageIds: Record<string, DoctorDesignPageId> = {
-  tambah: "tambah-jadwal",
-};
+const jadwalDetailPages = new Set(["tambah"]);
 
 export default async function JadwalDetailPage({
   params,
@@ -13,11 +8,10 @@ export default async function JadwalDetailPage({
   params: Promise<{ detail: string }>;
 }) {
   const { detail } = await params;
-  const pageId = jadwalDetailPageIds[detail];
 
-  if (!pageId) {
+  if (!jadwalDetailPages.has(detail)) {
     notFound();
   }
 
-  return <DoctorDesignRoutePage pageId={pageId} />;
+  return null;
 }

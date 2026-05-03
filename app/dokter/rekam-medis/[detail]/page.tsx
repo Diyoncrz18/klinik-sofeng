@@ -1,12 +1,6 @@
 import { notFound } from "next/navigation";
 
-import DoctorDesignRoutePage from "@/app/components/dokter/DoctorDesignRoutePage";
-import type { DoctorDesignPageId } from "@/app/components/dokter/doctorDesignRouting";
-
-const rekamMedisDetailPageIds: Record<string, DoctorDesignPageId> = {
-  detail: "detail-rekam-medis",
-  "tambah-pasien": "tambah-pasien",
-};
+const rekamMedisDetailPages = new Set(["detail", "tambah-pasien"]);
 
 export default async function RekamMedisDetailPage({
   params,
@@ -14,11 +8,10 @@ export default async function RekamMedisDetailPage({
   params: Promise<{ detail: string }>;
 }) {
   const { detail } = await params;
-  const pageId = rekamMedisDetailPageIds[detail];
 
-  if (!pageId) {
+  if (!rekamMedisDetailPages.has(detail)) {
     notFound();
   }
 
-  return <DoctorDesignRoutePage pageId={pageId} />;
+  return null;
 }

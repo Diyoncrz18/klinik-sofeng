@@ -1,12 +1,6 @@
 import { notFound } from "next/navigation";
 
-import DoctorDesignRoutePage from "@/app/components/dokter/DoctorDesignRoutePage";
-import type { DoctorDesignPageId } from "@/app/components/dokter/doctorDesignRouting";
-
-const appointmentDetailPageIds: Record<string, DoctorDesignPageId> = {
-  pemeriksaan: "pemeriksaan",
-  "edit-info": "edit-info",
-};
+const appointmentDetailPages = new Set(["pemeriksaan", "edit-info"]);
 
 export default async function AppointmentDetailPage({
   params,
@@ -14,11 +8,10 @@ export default async function AppointmentDetailPage({
   params: Promise<{ detail: string }>;
 }) {
   const { detail } = await params;
-  const pageId = appointmentDetailPageIds[detail];
 
-  if (!pageId) {
+  if (!appointmentDetailPages.has(detail)) {
     notFound();
   }
 
-  return <DoctorDesignRoutePage pageId={pageId} />;
+  return null;
 }

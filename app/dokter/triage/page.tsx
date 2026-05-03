@@ -1,5 +1,5 @@
-import DoctorDesignPage from "@/app/components/dokter/DoctorDesignPage";
+import { notFound } from "next/navigation";
 
-export default async function TriagePage() {
-  return <DoctorDesignPage initialPageId="triage" />;
+export default function TriagePage() {
+  notFound();
 }
