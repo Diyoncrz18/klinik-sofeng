@@ -13,9 +13,14 @@
 import { useState, useId } from "react";
 import { useRouter } from "next/navigation";
 
+import { useAuth } from "@/app/contexts/AuthContext";
+import { ApiError } from "@/lib/api";
+import { getUserRole } from "@/lib/types";
+
 export default function DoctorLoginPage() {
   const router = useRouter();
   const formId = useId();
+  const { login } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +28,6 @@ export default function DoctorLoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [focusedField, setFocusedField] = useState<"email" | "password" | null>(null);
 
   const emailId = `${formId}-email`;
   const passwordId = `${formId}-password`;
@@ -40,12 +44,31 @@ export default function DoctorLoginPage() {
 
     setIsLoading(true);
 
-    // Simulasi proses login — ganti dengan API call nyata
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const user = await login(email.trim(), password);
 
-    setIsLoading(false);
-    // Arahkan ke dashboard dokter setelah login
-    router.push("/dokter");
+      // Cek role: form ini khusus dokter — kalau yang login pasien, tolak.
+      const role = getUserRole(user);
+      if (role !== "dokter") {
+        setError(
+          role === "pasien"
+            ? "Akun ini terdaftar sebagai pasien. Silakan gunakan portal pasien."
+            : "Akun Anda tidak memiliki akses ke portal dokter.",
+        );
+        return;
+      }
+
+      router.replace("/dokter");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        // 401 = credential salah, 429 = rate-limited, lainnya = generic.
+        setError(err.message);
+      } else {
+        setError("Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -691,8 +714,6 @@ export default function DoctorLoginPage() {
                       placeholder="dokter@klinik.com"
                       value={email}
                       onChange={(e) => { setEmail(e.target.value); setError(""); }}
-                      onFocus={() => setFocusedField("email")}
-                      onBlur={() => setFocusedField(null)}
                       autoComplete="email"
                       required
                       aria-required="true"
@@ -721,8 +742,6 @@ export default function DoctorLoginPage() {
                       placeholder="Masukkan password Anda"
                       value={password}
                       onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                      onFocus={() => setFocusedField("password")}
-                      onBlur={() => setFocusedField(null)}
                       autoComplete="current-password"
                       required
                       aria-required="true"
