@@ -1,20 +1,11 @@
 "use client";
 
-/**
- * DoctorSidebar
- * ─────────────
- * Komponen sidebar dokter yang berdiri sendiri.
- *
- * Perbaikan (2026-04-12):
- * - Import CSS Module (DoctorSidebar.module.css) — CSS sidebar tidak lagi inline di dokter.html
- * - Aksesibilitas: aria-label pada <nav>, aria-current pada item aktif, aria-expanded pada toggle
- * - Navigasi menggunakan window.__doctorDesignNavigate (didaftarkan oleh DoctorDesignShell)
- * - Active state dikelola oleh script runtime (mencari id="nav-*" dan class="menu-item")
- * - Tidak bergantung pada Lucide CDN — ikon sudah sebagai inline SVG
- */
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
-// CSS Module — sidebar-specific styles (dipindahkan dari dokter.html <style> block)
-import styles from "./DoctorSidebar.module.css";
+import { useAuth } from "@/app/contexts/AuthContext";
+import { getUserDisplayName } from "@/lib/types";
 
 // Tipe window yang diperlukan (didefinisikan di DoctorDesignShell)
 type DoctorWindow = Window & {
@@ -26,7 +17,6 @@ type DoctorWindow = Window & {
 const PAGE_PATHS: Record<string, string> = {
   dashboard:     "/dokter",
   appointment:   "/dokter/appointment",
-  triage:        "/dokter/triage",
   "rekam-medis": "/dokter/rekam-medis",
   jadwal:        "/dokter/jadwal",
   antrian:       "/dokter/antrian",
@@ -52,9 +42,37 @@ const MENU_ITEM_CLASS =
 const MENU_ICON_CLASS =
   "menu-icon w-5 h-5 text-sidebar-text group-hover:text-gray-800 flex-shrink-0 transition-colors";
 
-export default function DoctorSidebar() {
-  // Import CSS module — memastikan styles dimuat saat komponen dirender
-  void styles;
+interface DoctorSidebarProps {
+  /** Jumlah appointment hari ini (badge di menu Appointment). */
+  appointmentBadge?: number;
+}
+
+export default function DoctorSidebar({
+  appointmentBadge,
+}: DoctorSidebarProps = {}) {
+  const router = useRouter();
+  const { user, logout } = useAuth();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const displayName = getUserDisplayName(user) || "Dokter";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase())
+    .join("") || "DR";
+
+  async function handleLogout() {
+    if (isLoggingOut) return;
+    if (!window.confirm("Yakin ingin keluar dari sesi?")) return;
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      router.replace("/login");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
 
   return (
     <>
@@ -113,7 +131,7 @@ export default function DoctorSidebar() {
           </div>
 
           {/* Dashboard */}
-          <a
+          <Link
             href="/dokter"
             id="nav-dashboard"
             className={MENU_ITEM_CLASS}
@@ -130,10 +148,10 @@ export default function DoctorSidebar() {
               Dashboard
             </span>
             <span className="menu-tooltip" aria-hidden="true">Dashboard</span>
-          </a>
+          </Link>
 
           {/* Appointment */}
-          <a
+          <Link
             href="/dokter/appointment"
             id="nav-appointment"
             className={MENU_ITEM_CLASS}
@@ -149,42 +167,19 @@ export default function DoctorSidebar() {
             <span className="menu-text ml-3 text-sm text-sidebar-text group-hover:text-gray-800 transition-colors flex-1">
               Appointment
             </span>
-            <span className="menu-text ml-auto bg-gray-50 text-gray-200 text-xs font-semibold px-2.5 py-0.5 rounded-full"
-              aria-label="12 appointment">
-              12
-            </span>
+            {appointmentBadge !== undefined && appointmentBadge > 0 && (
+              <span
+                className="menu-text ml-auto bg-primary-50 text-primary-700 text-xs font-semibold px-2.5 py-0.5 rounded-full"
+                aria-label={`${appointmentBadge} appointment hari ini`}
+              >
+                {appointmentBadge}
+              </span>
+            )}
             <span className="menu-tooltip" aria-hidden="true">Appointment</span>
-          </a>
-
-          {/* Panel Darurat / Triage */}
-          <a
-            href="/dokter/triage"
-            id="nav-triage"
-            className={MENU_ITEM_CLASS}
-            onClick={(e) => { e.preventDefault(); navigate("triage"); }}
-            title="Panel Darurat"
-          >
-            <div className="relative flex-shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                aria-hidden="true" className={MENU_ICON_CLASS}>
-                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
-                <path d="M12 9v4" /><path d="M12 17h.01" />
-              </svg>
-              <div className="notification-dot badge-pulse hidden" aria-hidden="true" />
-            </div>
-            <span className="menu-text ml-3 text-sm text-sidebar-text group-hover:text-gray-800 transition-colors flex-1">
-              Panel Darurat
-            </span>
-            <span className="menu-text ml-auto bg-[#ffdddd] text-[#ff6b6b] text-xs font-semibold px-2.5 py-0.5 rounded-full"
-              aria-label="3 kasus darurat">
-              3
-            </span>
-            <span className="menu-tooltip" aria-hidden="true">Panel Darurat</span>
-          </a>
+          </Link>
 
           {/* Rekam Medis */}
-          <a
+          <Link
             href="/dokter/rekam-medis"
             id="nav-rekam-medis"
             className={MENU_ITEM_CLASS}
@@ -201,7 +196,7 @@ export default function DoctorSidebar() {
               Rekam Medis
             </span>
             <span className="menu-tooltip" aria-hidden="true">Rekam Medis</span>
-          </a>
+          </Link>
 
           {/* Divider: Operasional */}
           <div className="section-label mt-5 mb-2 px-3" aria-hidden="true">
@@ -211,7 +206,7 @@ export default function DoctorSidebar() {
           </div>
 
           {/* Optimasi Jadwal */}
-          <a
+          <Link
             href="/dokter/jadwal"
             id="nav-jadwal"
             className={MENU_ITEM_CLASS}
@@ -227,10 +222,10 @@ export default function DoctorSidebar() {
               Optimasi Jadwal
             </span>
             <span className="menu-tooltip" aria-hidden="true">Optimasi Jadwal</span>
-          </a>
+          </Link>
 
           {/* Antrian */}
-          <a
+          <Link
             href="/dokter/antrian"
             id="nav-antrian"
             className={MENU_ITEM_CLASS}
@@ -253,7 +248,7 @@ export default function DoctorSidebar() {
               <span className="text-primary-100 text-[11px] font-medium">Live</span>
             </span>
             <span className="menu-tooltip" aria-hidden="true">Antrian</span>
-          </a>
+          </Link>
 
           {/* Divider: Lainnya */}
           <div className="section-label mt-5 mb-2 px-3" aria-hidden="true">
@@ -263,7 +258,7 @@ export default function DoctorSidebar() {
           </div>
 
           {/* Notifikasi */}
-          <a
+          <Link
             href="/dokter/notifikasi"
             id="nav-notifikasi"
             className={MENU_ITEM_CLASS}
@@ -287,10 +282,10 @@ export default function DoctorSidebar() {
               5
             </span>
             <span className="menu-tooltip" aria-hidden="true">Notifikasi</span>
-          </a>
+          </Link>
 
           {/* Analitik */}
-          <a
+          <Link
             href="/dokter/analitik"
             id="nav-analitik"
             className={MENU_ITEM_CLASS}
@@ -306,7 +301,7 @@ export default function DoctorSidebar() {
               Analitik
             </span>
             <span className="menu-tooltip" aria-hidden="true">Analitik</span>
-          </a>
+          </Link>
         </nav>
 
         {/* Bottom Section */}
@@ -330,22 +325,25 @@ export default function DoctorSidebar() {
             <span className="menu-text ml-3 text-sm">Tutup Sidebar</span>
           </button>
 
-          {/* Profile Section */}
-          <div
-            className="flex items-center px-4 py-3 border-t border-sidebar-border group cursor-pointer hover:bg-sidebar-hover transition-colors duration-150"
-            role="button"
-            tabIndex={0}
-            aria-label="Profil Dr. Rina Santoso"
+          {/* Profile Section — klik untuk logout */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={isLoggingOut}
+            className="flex items-center w-full px-4 py-3 border-t border-sidebar-border group cursor-pointer hover:bg-sidebar-hover transition-colors duration-150 disabled:opacity-60 disabled:cursor-wait text-left"
+            aria-label={`Keluar dari sesi ${displayName}`}
           >
             <div
               className="w-9 h-9 rounded-full bg-gradient-to-br from-primary-300 to-primary-700 flex items-center justify-center flex-shrink-0 ring-2 ring-primary-200/40"
               aria-hidden="true"
             >
-              <span className="text-white text-sm font-bold">DR</span>
+              <span className="text-white text-sm font-bold">{initials}</span>
             </div>
-            <div className="profile-info ml-3">
-              <p className="text-gray-800 text-sm font-semibold leading-tight">Dr. Rina Santoso</p>
-              <p className="text-sidebar-text text-[11px] leading-tight">Dokter Gigi Spesialis</p>
+            <div className="profile-info ml-3 min-w-0 flex-1">
+              <p className="text-gray-800 text-sm font-semibold leading-tight truncate">{displayName}</p>
+              <p className="text-sidebar-text text-[11px] leading-tight">
+                {isLoggingOut ? "Mengakhiri sesi..." : "Klik untuk keluar"}
+              </p>
             </div>
             <div className="profile-info ml-auto" aria-hidden="true">
               {/* Logout icon */}
@@ -355,7 +353,7 @@ export default function DoctorSidebar() {
                 <path d="m16 17 5-5-5-5" /><path d="M21 12H9" /><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               </svg>
             </div>
-          </div>
+          </button>
         </div>
       </aside>
     </>
