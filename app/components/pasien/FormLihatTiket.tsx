@@ -41,20 +41,20 @@ function shortApptId(id: string): string {
 }
 
 function ticketQrValue(appt: Appointment): string {
-  const path = `/pasien/jadwal/${appt.id}/tiket`;
+  const path = `/check-in/${appt.id}`;
   if (typeof window === "undefined") return path;
   return new URL(path, window.location.origin).toString();
 }
 
 function statusBadge(appt: Appointment): { label: string; bg: string } {
   switch (appt.status) {
-    case "menunggu":         return { label: "Menunggu",     bg: "rgba(255,255,255,0.2)" };
+    case "menunggu":         return { label: "Terkonfirmasi", bg: "rgba(74,222,128,0.32)" };
     case "sedang_ditangani": return { label: "Berlangsung",  bg: "rgba(74,222,128,0.32)" };
     case "selesai":          return { label: "Selesai",      bg: "rgba(34,197,94,0.3)" };
     case "dibatalkan":       return { label: "Dibatalkan",   bg: "rgba(239,68,68,0.3)" };
     case "tidak_hadir":      return { label: "Tidak Hadir",  bg: "rgba(156,163,175,0.3)" };
     case "terjadwal":
-    default:                 return { label: "Mendatang",    bg: "rgba(255,255,255,0.2)" };
+    default:                 return { label: "Belum Terkonfirmasi", bg: "rgba(251,191,36,0.32)" };
   }
 }
 
@@ -204,7 +204,7 @@ export default function FormLihatTiket({ appointmentId, onBack }: Props) {
             {/* QR Code */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
               <p style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, marginBottom: 12 }}>
-                Scan QR saat kedatangan di resepsionis
+                Scan QR di meja resepsionis untuk konfirmasi kedatangan
               </p>
               <div
                 style={{

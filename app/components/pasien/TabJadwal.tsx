@@ -43,8 +43,8 @@ export default function TabJadwal() {
   const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
 
   // ── Fetch (re-usable untuk refresh setelah cancel) ──────────────
-  const refetch = useCallback(async () => {
-    setLoading(true);
+  const refetch = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
       const items = await listAppointments();
       setAppointments(items);
@@ -53,12 +53,27 @@ export default function TabJadwal() {
       const msg = err instanceof Error ? err.message : "Gagal memuat jadwal.";
       setErrorMsg(msg);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void refetch();
+  }, [refetch]);
+
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      void refetch(false);
+    };
+    const intervalId = window.setInterval(() => {
+      void refetch(false);
+    }, 15_000);
+
+    window.addEventListener("focus", refreshOnFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshOnFocus);
+    };
   }, [refetch]);
 
   // ── Group + sort per bucket ─────────────────────────────────────

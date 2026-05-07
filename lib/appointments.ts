@@ -41,6 +41,34 @@ export async function getAppointment(id: string): Promise<Appointment> {
   return data.appointment;
 }
 
+export interface AppointmentQueue {
+  id: string;
+  appointment_id: string;
+  nomor: number;
+  status: "menunggu" | "dipanggil" | "sedang_ditangani" | "selesai" | "dilewati";
+  estimasi_jam: string | null;
+  dipanggil_at: string | null;
+  selesai_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CheckInAppointmentResponse {
+  appointment: Appointment;
+  queue: AppointmentQueue;
+  confirmed: boolean;
+}
+
+export async function checkInAppointment(
+  id: string,
+): Promise<CheckInAppointmentResponse> {
+  return api.post<CheckInAppointmentResponse>(
+    `/appointments/${id}/check-in`,
+    undefined,
+    { skipAuth: true },
+  );
+}
+
 export interface CreateAppointmentInput {
   dokterId: string;
   /** YYYY-MM-DD */

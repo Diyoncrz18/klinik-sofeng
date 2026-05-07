@@ -60,8 +60,8 @@ export function formatJamRange(
 
 // ── Status appointment → label user-friendly ─────────────────────────
 const STATUS_LABEL: Record<AppointmentStatus, string> = {
-  terjadwal: "Terkonfirmasi",
-  menunggu: "Menunggu",
+  terjadwal: "Belum Terkonfirmasi",
+  menunggu: "Terkonfirmasi",
   sedang_ditangani: "Sedang Ditangani",
   selesai: "Selesai",
   dibatalkan: "Dibatalkan",
@@ -109,14 +109,14 @@ export interface StatusVisual {
 
 const STATUS_VISUAL: Record<AppointmentStatus, StatusVisual> = {
   terjadwal: {
-    color: "#059669",
-    bg: "#dcfce7",
-    accentGradient: "linear-gradient(135deg, #059669, #34d399)",
-  },
-  menunggu: {
     color: "#d97706",
     bg: "#fffbeb",
     accentGradient: "linear-gradient(135deg, #d97706, #fbbf24)",
+  },
+  menunggu: {
+    color: "#059669",
+    bg: "#dcfce7",
+    accentGradient: "linear-gradient(135deg, #059669, #34d399)",
   },
   sedang_ditangani: {
     color: "#2A6B9B",
