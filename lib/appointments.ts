@@ -69,6 +69,48 @@ export async function checkInAppointment(
   );
 }
 
+export interface CompleteAppointmentInput {
+  keluhan?: string | null;
+  areaGigi?: string | null;
+  diagnosa: string;
+  temuan?: string | null;
+  tindakan: string;
+  resep?: string | null;
+  catatan?: string | null;
+  biaya?: number | null;
+  perluKontrol?: boolean;
+}
+
+export interface RekamMedisSummary {
+  id: string;
+  pasien_id: string;
+  dokter_id: string;
+  appointment_id: string | null;
+  tanggal: string;
+  diagnosa: string;
+  tindakan: string | null;
+  resep: string | null;
+  biaya: number | null;
+  catatan: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompleteAppointmentResponse {
+  appointment: Appointment;
+  record: RekamMedisSummary;
+}
+
+export async function completeAppointment(
+  id: string,
+  input: CompleteAppointmentInput,
+): Promise<CompleteAppointmentResponse> {
+  return api.post<CompleteAppointmentResponse>(
+    `/appointments/${id}/complete`,
+    input,
+  );
+}
+
 export interface CreateAppointmentInput {
   dokterId: string;
   /** YYYY-MM-DD */

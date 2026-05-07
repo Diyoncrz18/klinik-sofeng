@@ -16,6 +16,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
   type MouseEvent,
 } from "react";
 
@@ -26,7 +27,7 @@ import DoctorMedicalRecordsPage from "./DoctorMedicalRecordsPage";
 import DoctorNotificationsPage from "./DoctorNotificationsPage";
 import DoctorScheduleOptimizationPage from "./DoctorScheduleOptimizationPage";
 import type { DoctorDesignPageId } from "./doctorDesignRouting";
-import { checkInAppointment } from "@/lib/appointments";
+import { checkInAppointment, completeAppointment } from "@/lib/appointments";
 import type { DokterDashboardData } from "@/lib/hooks/useDokterDashboard";
 import type { DoctorNotificationsData } from "@/lib/hooks/useDoctorNotifications";
 import {
@@ -168,6 +169,7 @@ const ACTIVE_APPOINTMENT_STATUSES = new Set<AppointmentStatus>([
 ]);
 const EMPTY_APPOINTMENTS: Appointment[] = [];
 const SHOW_LEGACY_APPOINTMENT_MOCKUP = false;
+const DOCTOR_EXAM_APPOINTMENT_STORAGE_KEY = "klinik-sofeng:doctor-exam-appointment-id";
 const APPOINTMENT_ID_PATTERN =
   /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
 
@@ -536,10 +538,417 @@ function DoctorAppointmentScanPanel({
   );
 }
 
+function formString(form: FormData, key: string): string {
+  const value = form.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function DoctorExaminationPage({
+  appointment,
+  loading,
+  onCompleted,
+}: {
+  appointment: Appointment | null;
+  loading: boolean;
+  onCompleted: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const canComplete =
+    appointment?.status === "menunggu" || appointment?.status === "sedang_ditangani";
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!appointment || !canComplete) return;
+
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const biayaRaw = formString(form, "biaya");
+    const perluKontrol = form.get("perluKontrol") === "on";
+
+    setSaving(true);
+    setErrorMsg(null);
+
+    try {
+      await completeAppointment(appointment.id, {
+        keluhan: formString(form, "keluhan") || null,
+        areaGigi: formString(form, "areaGigi") || null,
+        diagnosa: formString(form, "diagnosa"),
+        temuan: formString(form, "temuan") || null,
+        tindakan: formString(form, "tindakan"),
+        resep: formString(form, "resep") || null,
+        catatan: formString(form, "catatan") || null,
+        biaya: biayaRaw ? Number(biayaRaw) : null,
+        perluKontrol,
+      });
+      formElement.reset();
+      onCompleted();
+    } catch (error) {
+      setErrorMsg(confirmationErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading && !appointment) {
+    return (
+      <div className="flex h-full min-h-[520px] items-center justify-center rounded-xl border border-gray-100 bg-white">
+        <div className="flex items-center gap-2 text-sm font-semibold text-gray-500">
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          Memuat appointment...
+        </div>
+      </div>
+    );
+  }
+
+  if (!appointment) {
+    return (
+      <div className="flex h-full min-h-[520px] flex-col items-center justify-center rounded-xl border border-gray-100 bg-white px-6 text-center shadow-sm">
+        <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-gray-50 text-gray-400">
+          <ScanLine className="size-6" aria-hidden="true" />
+        </div>
+        <p className="text-base font-black text-gray-900">Belum ada appointment dipilih</p>
+        <p className="mt-1 max-w-md text-sm font-medium text-gray-500">
+          Buka appointment yang sudah terkonfirmasi untuk melanjutkan pemeriksaan.
+        </p>
+        <button
+          type="button"
+          data-page-id="appointment"
+          className="mt-5 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-primary-600/25 transition-colors hover:bg-primary-700"
+        >
+          Kembali ke Appointment
+        </button>
+      </div>
+    );
+  }
+
+  if (!canComplete) {
+    const message =
+      appointment.status === "terjadwal"
+        ? "Appointment ini belum terkonfirmasi. Scan QR kedatangan pasien terlebih dahulu."
+        : `Appointment ini berstatus ${formatStatusLabel(appointment.status)} dan tidak bisa diselesaikan dari form pemeriksaan.`;
+
+    return (
+      <div className="flex h-full min-h-[520px] flex-col items-center justify-center rounded-xl border border-amber-100 bg-white px-6 text-center shadow-sm">
+        <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+          <ScanLine className="size-6" aria-hidden="true" />
+        </div>
+        <p className="text-base font-black text-gray-900">{pasienFullName(appointment)}</p>
+        <p className="mt-1 max-w-md text-sm font-medium text-amber-700">{message}</p>
+        <button
+          type="button"
+          data-page-id="appointment"
+          className="mt-5 rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-sm font-bold text-gray-700 transition-colors hover:bg-gray-50"
+        >
+          Kembali ke Appointment
+        </button>
+      </div>
+    );
+  }
+
+  const patientName = pasienFullName(appointment);
+  const initial = pasienInitials(appointment);
+  const keluhanAwal =
+    appointment.keluhan?.trim() || "Pasien belum menambahkan keluhan awal.";
+  const status = statusBadge(appointment);
+
+  return (
+    <form
+      id="doctor-examination-form"
+      onSubmit={handleSubmit}
+      className="h-full overflow-y-auto"
+      style={{ scrollbarWidth: "thin" }}
+    >
+      <div className="sticky top-0 z-20 mb-5 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              data-page-id="appointment"
+              aria-label="Kembali ke appointment"
+              className="flex size-9 flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+            </button>
+            <div className="h-6 w-px flex-shrink-0 bg-gray-200" />
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-full bg-teal-100 text-sm font-black text-teal-700">
+                {initial}
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-black leading-tight text-gray-900">{patientName}</h3>
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-gray-500">
+                    {shortAppointmentId(appointment.id)}
+                  </span>
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${status.className}`}>
+                    {status.label}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-gray-400">
+                  {appointmentTitle(appointment)} - {formatTanggalIndo(appointment.tanggal)} - {formatJamRange(appointment.jam)}
+                </p>
+              </div>
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-teal-600 bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-teal-600/25 transition-colors hover:bg-teal-700 disabled:cursor-wait disabled:opacity-70"
+          >
+            {saving ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <CheckCircle2 className="size-4" aria-hidden="true" />
+            )}
+            Simpan & Selesaikan
+          </button>
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-6xl pb-8">
+        {errorMsg && (
+          <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+            {errorMsg}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+          <div className="space-y-4 lg:col-span-1">
+            <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+              <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                Konteks Pasien
+              </p>
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex size-12 flex-shrink-0 items-center justify-center rounded-2xl bg-teal-100 font-black text-teal-700">
+                  {initial}
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900">{patientName}</p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    ID Appointment {shortAppointmentId(appointment.id)}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2.5 text-sm">
+                <div className="flex justify-between gap-4">
+                  <span className="text-xs font-semibold text-gray-400">Keluhan Awal</span>
+                  <span className="max-w-[62%] text-right text-xs font-semibold text-gray-800">
+                    {keluhanAwal}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-xs font-semibold text-gray-400">Jenis</span>
+                  <span className="text-right text-xs font-semibold text-gray-800">
+                    {appointmentTitle(appointment)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-xs font-semibold text-gray-400">Dokter</span>
+                  <span className="text-right text-xs font-semibold text-gray-800">
+                    {appointment.dokter?.profile.full_name ?? "Dokter"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+              <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                Info Kunjungan
+              </p>
+              <div className="space-y-3 text-sm">
+                <DoctorInfoRow
+                  label="Tanggal"
+                  value={formatTanggalIndo(appointment.tanggal)}
+                  caption={formatJamRange(appointment.jam)}
+                />
+                <div className="h-px bg-gray-100" />
+                <DoctorInfoRow
+                  label="Status"
+                  value={formatStatusLabel(appointment.status)}
+                  caption="Pasien sudah bisa diperiksa"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-2">
+            <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+              <div className="flex items-center gap-3 border-b border-gray-100 bg-gradient-to-r from-teal-50 to-white px-6 py-4">
+                <div className="flex size-9 flex-shrink-0 items-center justify-center rounded-lg bg-teal-100 text-teal-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx={20} cy={10} r={2}/></svg>
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-gray-900">Catatan Pemeriksaan</h4>
+                  <p className="mt-0.5 text-xs text-gray-400">
+                    Ringkasan klinis, tindakan, resep, dan rencana kontrol
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-5 p-6">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="sm:col-span-2">
+                    <label htmlFor="pemeriksaan-keluhan" className="mb-1.5 block text-xs font-bold text-gray-600">
+                      Keluhan Utama
+                    </label>
+                    <textarea
+                      id="pemeriksaan-keluhan"
+                      name="keluhan"
+                      rows={3}
+                      defaultValue={appointment.keluhan ?? ""}
+                      placeholder="Contoh: Ngilu saat minum dingin pada gigi geraham kiri bawah."
+                      className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-700 transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="pemeriksaan-gigi" className="mb-1.5 block text-xs font-bold text-gray-600">
+                      Area Gigi
+                    </label>
+                    <input
+                      id="pemeriksaan-gigi"
+                      name="areaGigi"
+                      type="text"
+                      placeholder="Contoh: Gigi 36"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm font-semibold text-gray-700 transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                    />
+                    <label htmlFor="pemeriksaan-biaya" className="mb-1.5 mt-3 block text-xs font-bold text-gray-600">
+                      Biaya
+                    </label>
+                    <input
+                      id="pemeriksaan-biaya"
+                      name="biaya"
+                      type="number"
+                      min={0}
+                      step={1000}
+                      placeholder="0"
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm font-semibold text-gray-700 transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                    />
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100" />
+
+                <div>
+                  <label htmlFor="pemeriksaan-diagnosa" className="mb-1.5 block text-xs font-bold text-gray-600">
+                    Diagnosis <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="pemeriksaan-diagnosa"
+                    name="diagnosa"
+                    type="text"
+                    required
+                    placeholder="Contoh: Karies profunda"
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm font-semibold text-gray-700 transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="pemeriksaan-temuan" className="mb-1.5 block text-xs font-bold text-gray-600">
+                    Temuan Klinis
+                  </label>
+                  <textarea
+                    id="pemeriksaan-temuan"
+                    name="temuan"
+                    rows={3}
+                    placeholder="Contoh: Karies pada gigi 36, perkusi negatif, palpasi negatif."
+                    className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-700 transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="pemeriksaan-tindakan" className="mb-1.5 block text-xs font-bold text-gray-600">
+                    Tindakan & Rencana <span className="text-rose-500">*</span>
+                  </label>
+                  <textarea
+                    id="pemeriksaan-tindakan"
+                    name="tindakan"
+                    rows={3}
+                    required
+                    placeholder="Contoh: Scaling selesai. Observasi sensitivitas gigi 36."
+                    className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-700 transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="pemeriksaan-resep" className="mb-1.5 block text-xs font-bold text-gray-600">
+                    Resep / Instruksi
+                    <span className="ml-2 text-[10px] font-normal text-gray-400 normal-case">(Opsional)</span>
+                  </label>
+                  <textarea
+                    id="pemeriksaan-resep"
+                    name="resep"
+                    rows={2}
+                    placeholder="Opsional: tulis nama obat, dosis, atau instruksi singkat."
+                    className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-700 transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="pemeriksaan-catatan" className="mb-1.5 block text-xs font-bold text-gray-600">
+                    Catatan Tambahan
+                  </label>
+                  <textarea
+                    id="pemeriksaan-catatan"
+                    name="catatan"
+                    rows={2}
+                    placeholder="Catatan klinis tambahan bila diperlukan."
+                    className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-700 transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                  <input
+                    id="perlu-kontrol"
+                    name="perluKontrol"
+                    type="checkbox"
+                    className="size-4 cursor-pointer rounded border-amber-300 text-amber-600 focus:ring-amber-500/30"
+                  />
+                  <label htmlFor="perlu-kontrol" className="flex-1 cursor-pointer text-sm font-semibold text-amber-800">
+                    Pasien perlu jadwal kontrol ulang
+                  </label>
+                  <span className="rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[10px] font-bold text-amber-500">
+                    Follow-up
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col-reverse gap-3 border-t border-gray-100 bg-gray-50/60 px-6 py-4 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  data-page-id="appointment"
+                  className="inline-flex justify-center rounded-lg border border-gray-200 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-teal-600 bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-teal-600/25 transition-colors hover:bg-teal-700 disabled:cursor-wait disabled:opacity-70"
+                >
+                  {saving ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <CheckCircle2 className="size-4" aria-hidden="true" />
+                  )}
+                  Simpan & Selesaikan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  );
+}
+
 function AppointmentManagementPage({
   dashboardData,
+  onStartExam,
 }: {
   dashboardData?: DokterDashboardData;
+  onStartExam: (appointment: Appointment) => void;
 }) {
   const appointments = dashboardData?.appointments ?? EMPTY_APPOINTMENTS;
   const loading = dashboardData?.loading ?? false;
@@ -744,6 +1153,7 @@ function AppointmentManagementPage({
           <AppointmentDetailPanel
             appointment={selectedAppointment}
             onScanClick={() => setIsScannerOpen(true)}
+            onStartExam={onStartExam}
           />
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm h-full min-h-[480px] flex flex-col items-center justify-center text-center px-6">
@@ -774,9 +1184,11 @@ function AppointmentManagementPage({
 function AppointmentDetailPanel({
   appointment,
   onScanClick,
+  onStartExam,
 }: {
   appointment: Appointment;
   onScanClick: () => void;
+  onStartExam: (appointment: Appointment) => void;
 }) {
   const badge = statusBadge(appointment);
   const keluhan = appointment.keluhan?.trim() || "Pasien belum menambahkan catatan keluhan.";
@@ -828,6 +1240,7 @@ function AppointmentDetailPanel({
               ) : (
                 <button
                   data-page-id="pemeriksaan"
+                  onClick={() => onStartExam(appointment)}
                   disabled={!canStartExam}
                   className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-blue-500/30 disabled:cursor-not-allowed disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none"
                 >
@@ -946,9 +1359,14 @@ export default function DoctorDashboardMarkup({
   ].filter(Boolean).join(" ");
 
   const stats = dashboardData?.stats;
+  const dashboardAppointments = dashboardData?.appointments ?? EMPTY_APPOINTMENTS;
   const upcomingAppointments = dashboardData?.upcomingAppointments ?? [];
   const loadingDashboard = dashboardData?.loading ?? false;
   const errorDashboard = dashboardData?.errorMsg ?? null;
+  const [examinationAppointmentId, setExaminationAppointmentId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem(DOCTOR_EXAM_APPOINTMENT_STORAGE_KEY);
+  });
   const activeQueueRegistration =
     queueRegistrations.find((registration) => registration.status === "dipanggil") ?? null;
   const waitingQueueRegistrations = queueRegistrations.filter(
@@ -963,6 +1381,29 @@ export default function DoctorDashboardMarkup({
     activeQueueRegistration?.calledAt ?? activeQueueRegistration?.createdAt,
   );
   const unreadNotificationCount = notificationsData?.unreadCount ?? 0;
+  const examinationAppointment =
+    dashboardAppointments.find((appointment) => appointment.id === examinationAppointmentId) ??
+    dashboardAppointments.find(
+      (appointment) =>
+        appointment.status === "menunggu" || appointment.status === "sedang_ditangani",
+    ) ??
+    null;
+
+  const handleStartExamination = useCallback((appointment: Appointment) => {
+    setExaminationAppointmentId(appointment.id);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(DOCTOR_EXAM_APPOINTMENT_STORAGE_KEY, appointment.id);
+    }
+  }, []);
+
+  const handleExaminationCompleted = useCallback(() => {
+    dashboardData?.refetch();
+    setExaminationAppointmentId(null);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(DOCTOR_EXAM_APPOINTMENT_STORAGE_KEY);
+    }
+    document.getElementById("modal-sesi-selesai")?.classList.remove("hidden");
+  }, [dashboardData]);
 
   // Helper untuk render angka stat: '—' kalau loading & belum punya data,
   // angka aktual kalau sudah ada.
@@ -1166,7 +1607,10 @@ export default function DoctorDashboardMarkup({
         </div>
         {/* Other Pages (hidden by default) */}
         <div id="page-appointment" className={pageClass("appointment", " h-full")}>
-          <AppointmentManagementPage dashboardData={dashboardData} />
+          <AppointmentManagementPage
+            dashboardData={dashboardData}
+            onStartExam={handleStartExamination}
+          />
           {SHOW_LEGACY_APPOINTMENT_MOCKUP && (
           <div className="flex flex-col lg:flex-row gap-6 h-full">
             {/* Bagian Kiri: List Appointment (Side Panel) */}
@@ -1427,6 +1871,13 @@ export default function DoctorDashboardMarkup({
         </div>
         {/* PAGE PEMERIKSAAN MEDIS */}
         <div id="page-pemeriksaan" className={pageClass("pemeriksaan", " h-full overflow-y-auto")} style={{scrollbarWidth: 'thin'}}>
+          <DoctorExaminationPage
+            appointment={examinationAppointment}
+            loading={loadingDashboard}
+            onCompleted={handleExaminationCompleted}
+          />
+          {SHOW_LEGACY_APPOINTMENT_MOCKUP && (
+          <>
           {/* Sticky top bar */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 mb-5 sticky top-0 z-20 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
@@ -1680,6 +2131,8 @@ export default function DoctorDashboardMarkup({
               </div>
             </div>
           </div>
+          </>
+          )}
         </div>
         {/* PAGE EDIT INFO KUNJUNGAN */}
         <div id="page-edit-info" className={pageClass("edit-info", " h-full overflow-y-auto")} style={{scrollbarWidth: 'thin'}}>
