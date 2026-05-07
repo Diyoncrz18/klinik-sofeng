@@ -1,8 +1,23 @@
 "use client";
 
+import {
+  Camera,
+  CheckCircle2,
+  Loader2,
+  MessageCircle,
+  ScanLine,
+  X,
+} from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useMemo, useState, type CSSProperties, type MouseEvent } from "react";
-import { MessageCircle } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
 
 import DoctorAnalyticsPage from "./DoctorAnalyticsPage";
 import DoctorChatPage from "./DoctorChatPage";
@@ -11,6 +26,7 @@ import DoctorMedicalRecordsPage from "./DoctorMedicalRecordsPage";
 import DoctorNotificationsPage from "./DoctorNotificationsPage";
 import DoctorScheduleOptimizationPage from "./DoctorScheduleOptimizationPage";
 import type { DoctorDesignPageId } from "./doctorDesignRouting";
+import { checkInAppointment } from "@/lib/appointments";
 import type { DokterDashboardData } from "@/lib/hooks/useDokterDashboard";
 import type { DoctorNotificationsData } from "@/lib/hooks/useDoctorNotifications";
 import {
@@ -96,8 +112,8 @@ function statusBadge(appt: Appointment): { label: string; className: string } {
   switch (appt.status) {
     case "menunggu":
       return {
-        label: "Menunggu",
-        className: "text-amber-600 bg-amber-50",
+        label: "Terkonfirmasi",
+        className: "text-emerald-600 bg-emerald-50",
       };
     case "sedang_ditangani":
       return {
@@ -122,8 +138,14 @@ function statusBadge(appt: Appointment): { label: string; className: string } {
     case "terjadwal":
     default:
       return appt.jenis === "darurat"
-        ? { label: "Emergency", className: "text-red-600 bg-red-50" }
-        : { label: "Confirmed", className: "text-emerald-600 bg-emerald-50" };
+        ? {
+            label: "Darurat Belum Terkonfirmasi",
+            className: "text-red-600 bg-red-50",
+          }
+        : {
+            label: "Belum Terkonfirmasi",
+            className: "text-amber-700 bg-amber-50",
+          };
   }
 }
 
@@ -146,8 +168,20 @@ const ACTIVE_APPOINTMENT_STATUSES = new Set<AppointmentStatus>([
 ]);
 const EMPTY_APPOINTMENTS: Appointment[] = [];
 const SHOW_LEGACY_APPOINTMENT_MOCKUP = false;
+const APPOINTMENT_ID_PATTERN =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
 
 type DoctorAppointmentFilter = "aktif" | "selesai" | "dibatalkan";
+type DetectedBarcode = { rawValue: string };
+type BarcodeDetectorInstance = {
+  detect(source: HTMLVideoElement): Promise<DetectedBarcode[]>;
+};
+type BarcodeDetectorConstructor = new (options?: {
+  formats?: string[];
+}) => BarcodeDetectorInstance;
+type WindowWithBarcodeDetector = Window & {
+  BarcodeDetector?: BarcodeDetectorConstructor;
+};
 
 function todayIsoLocal(): string {
   const d = new Date();
@@ -179,6 +213,329 @@ function sortAppointmentsForDoctor(a: Appointment, b: Appointment): number {
   return a.jam.localeCompare(b.jam);
 }
 
+function getBarcodeDetectorConstructor(): BarcodeDetectorConstructor | null {
+  if (typeof window === "undefined") return null;
+  return (window as WindowWithBarcodeDetector).BarcodeDetector ?? null;
+}
+
+function extractAppointmentIdFromScan(value: string): string | null {
+  const text = value.trim();
+  if (!text) return null;
+  return text.match(APPOINTMENT_ID_PATTERN)?.[0] ?? null;
+}
+
+function scanErrorMessage(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError") {
+      return "Izin kamera ditolak. Masukkan ID atau URL QR secara manual.";
+    }
+    if (error.name === "NotFoundError") {
+      return "Kamera tidak ditemukan. Masukkan ID atau URL QR secara manual.";
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return "Gagal membuka kamera.";
+}
+
+function confirmationErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return "Gagal mengonfirmasi appointment.";
+}
+
+function DoctorAppointmentScanPanel({
+  open,
+  onClose,
+  onConfirmed,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirmed: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const confirmingRef = useRef(false);
+  const lastScanRef = useRef<string | null>(null);
+  const [manualValue, setManualValue] = useState("");
+  const [cameraState, setCameraState] = useState<
+    "idle" | "starting" | "active" | "unsupported" | "error"
+  >("idle");
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const confirmScannedValue = useCallback(
+    async (value: string) => {
+      if (confirmingRef.current) return;
+
+      const appointmentId = extractAppointmentIdFromScan(value);
+      if (!appointmentId) {
+        setErrorMsg("QR tidak valid. Pastikan QR berasal dari tiket appointment.");
+        return;
+      }
+
+      confirmingRef.current = true;
+      setSubmitting(true);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+
+      try {
+        const result = await checkInAppointment(appointmentId);
+        const queueNumber = result.queue?.nomor;
+        setSuccessMsg(
+          result.confirmed
+            ? `Appointment ${shortAppointmentId(result.appointment.id)} terkonfirmasi. Nomor antrian ${queueNumber}.`
+            : `Appointment ${shortAppointmentId(result.appointment.id)} sudah pernah dikonfirmasi. Nomor antrian ${queueNumber}.`,
+        );
+        onConfirmed();
+      } catch (error) {
+        setErrorMsg(confirmationErrorMessage(error));
+      } finally {
+        setSubmitting(false);
+        confirmingRef.current = false;
+      }
+    },
+    [onConfirmed],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      stopCamera();
+      return;
+    }
+
+    setManualValue("");
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setCameraState("idle");
+    lastScanRef.current = null;
+  }, [open, stopCamera]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const Detector = getBarcodeDetectorConstructor();
+    if (!Detector || !navigator.mediaDevices?.getUserMedia) {
+      setCameraState("unsupported");
+      return;
+    }
+
+    let cancelled = false;
+    let scanTimer = 0;
+
+    const startCamera = async () => {
+      setCameraState("starting");
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+          },
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => undefined);
+        }
+
+        const detector = new Detector({ formats: ["qr_code"] });
+        setCameraState("active");
+
+        const scanFrame = async () => {
+          if (cancelled) return;
+
+          const video = videoRef.current;
+          if (
+            video &&
+            video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+            !confirmingRef.current
+          ) {
+            const codes = await detector.detect(video).catch(() => []);
+            const rawValue = codes[0]?.rawValue;
+            if (rawValue && rawValue !== lastScanRef.current) {
+              lastScanRef.current = rawValue;
+              void confirmScannedValue(rawValue);
+            }
+          }
+
+          scanTimer = window.setTimeout(scanFrame, 450);
+        };
+
+        void scanFrame();
+      } catch (error) {
+        if (cancelled) return;
+        setCameraState("error");
+        setErrorMsg(scanErrorMessage(error));
+      }
+    };
+
+    void startCamera();
+
+    return () => {
+      cancelled = true;
+      if (scanTimer) window.clearTimeout(scanTimer);
+      stopCamera();
+    };
+  }, [confirmScannedValue, open, stopCamera]);
+
+  if (!open) return null;
+
+  const cameraReady = cameraState === "active";
+  const cameraLoading = cameraState === "starting";
+  const cameraUnavailable =
+    cameraState === "unsupported" || cameraState === "error";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/55 px-4 py-6 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="doctor-scan-title"
+    >
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5">
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-primary-50 text-primary-700">
+              <ScanLine className="size-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h3 id="doctor-scan-title" className="text-sm font-black text-gray-900">
+                Scan QR Appointment
+              </h3>
+              <p className="text-xs font-medium text-gray-400">
+                Konfirmasi kedatangan pasien
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex size-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
+            aria-label="Tutup scanner"
+          >
+            <X className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="grid gap-0 md:grid-cols-[1.25fr_0.9fr]">
+          <div className="bg-gray-950 p-4">
+            <div className="relative aspect-[4/3] overflow-hidden rounded-xl border border-white/10 bg-gray-900">
+              <video
+                ref={videoRef}
+                className={[
+                  "h-full w-full object-cover",
+                  cameraReady ? "opacity-100" : "opacity-25",
+                ].join(" ")}
+                muted
+                playsInline
+              />
+              <div className="pointer-events-none absolute inset-8 rounded-2xl border-2 border-white/80 shadow-[0_0_0_999px_rgba(0,0,0,0.28)]" />
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-4 pb-4 pt-14">
+                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-white ring-1 ring-white/15">
+                  {cameraLoading ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  ) : cameraReady ? (
+                    <Camera className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <ScanLine className="size-3.5" aria-hidden="true" />
+                  )}
+                  {cameraLoading
+                    ? "Membuka kamera"
+                    : cameraReady
+                      ? "Kamera aktif"
+                      : "Scanner manual tersedia"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col justify-between gap-4 p-5">
+            <div className="space-y-3">
+              {successMsg && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-semibold text-emerald-700">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="mt-0.5 size-4 flex-shrink-0" aria-hidden="true" />
+                    <span>{successMsg}</span>
+                  </div>
+                </div>
+              )}
+
+              {errorMsg && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm font-semibold text-rose-700">
+                  {errorMsg}
+                </div>
+              )}
+
+              {cameraUnavailable && !errorMsg && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-800">
+                  Kamera tidak tersedia di browser ini.
+                </div>
+              )}
+
+              <form
+                className="space-y-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void confirmScannedValue(manualValue);
+                }}
+              >
+                <label
+                  htmlFor="doctor-appointment-qr-input"
+                  className="block text-xs font-black uppercase tracking-wider text-gray-400"
+                >
+                  ID / URL QR
+                </label>
+                <textarea
+                  id="doctor-appointment-qr-input"
+                  value={manualValue}
+                  onChange={(event) => setManualValue(event.target.value)}
+                  rows={4}
+                  placeholder="Paste URL QR atau ID appointment"
+                  className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm font-medium text-gray-700 outline-none transition-all focus:border-primary-300 focus:ring-2 focus:ring-primary-500/20"
+                />
+                <button
+                  type="submit"
+                  disabled={submitting || manualValue.trim().length === 0}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-black text-white shadow-sm shadow-primary-600/25 transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <CheckCircle2 className="size-4" aria-hidden="true" />
+                  )}
+                  Konfirmasi Kedatangan
+                </button>
+              </form>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-bold text-gray-600 transition-colors hover:bg-gray-50"
+            >
+              Selesai
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppointmentManagementPage({
   dashboardData,
 }: {
@@ -191,6 +548,11 @@ function AppointmentManagementPage({
   const [filter, setFilter] = useState<DoctorAppointmentFilter>("aktif");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+  const handleScanConfirmed = useCallback(() => {
+    refetch?.();
+  }, [refetch]);
 
   const filteredAppointments = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -231,6 +593,7 @@ function AppointmentManagementPage({
   ];
 
   return (
+    <>
     <div className="flex flex-col lg:flex-row gap-6 h-full" data-testid="doctor-appointment-page">
       <div className="w-full lg:w-1/3 xl:w-1/4 flex flex-col gap-4">
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
@@ -240,6 +603,14 @@ function AppointmentManagementPage({
               <span className="bg-primary-50 text-primary-700 text-xs font-medium px-2 py-1 rounded-md">
                 {filterCounts.aktif} Aktif
               </span>
+              <button
+                type="button"
+                onClick={() => setIsScannerOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-primary-200 bg-primary-50 px-2 py-1 text-xs font-semibold text-primary-700 transition-colors hover:bg-white"
+              >
+                <ScanLine className="size-3.5" aria-hidden="true" />
+                Scan
+              </button>
               <button
                 type="button"
                 onClick={() => refetch?.()}
@@ -370,7 +741,10 @@ function AppointmentManagementPage({
 
       <div className="w-full lg:w-2/3 xl:w-3/4">
         {selectedAppointment ? (
-          <AppointmentDetailPanel appointment={selectedAppointment} />
+          <AppointmentDetailPanel
+            appointment={selectedAppointment}
+            onScanClick={() => setIsScannerOpen(true)}
+          />
         ) : (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm h-full min-h-[480px] flex flex-col items-center justify-center text-center px-6">
             <div className="w-16 h-16 rounded-2xl bg-primary-50 border border-primary-100 flex items-center justify-center text-primary-700 mb-4">
@@ -388,12 +762,27 @@ function AppointmentManagementPage({
         )}
       </div>
     </div>
+    <DoctorAppointmentScanPanel
+      open={isScannerOpen}
+      onClose={() => setIsScannerOpen(false)}
+      onConfirmed={handleScanConfirmed}
+    />
+    </>
   );
 }
 
-function AppointmentDetailPanel({ appointment }: { appointment: Appointment }) {
+function AppointmentDetailPanel({
+  appointment,
+  onScanClick,
+}: {
+  appointment: Appointment;
+  onScanClick: () => void;
+}) {
   const badge = statusBadge(appointment);
   const keluhan = appointment.keluhan?.trim() || "Pasien belum menambahkan catatan keluhan.";
+  const needsCheckIn = appointment.status === "terjadwal";
+  const canStartExam =
+    appointment.status === "menunggu" || appointment.status === "sedang_ditangani";
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col relative pb-6 h-full overflow-hidden">
@@ -427,9 +816,24 @@ function AppointmentDetailPanel({ appointment }: { appointment: Appointment }) {
               <button data-page-id="edit-info" className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
                 Edit Info
               </button>
-              <button data-page-id="pemeriksaan" className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-blue-500/30">
-                Mulai Pemeriksaan
-              </button>
+              {needsCheckIn ? (
+                <button
+                  type="button"
+                  onClick={onScanClick}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-amber-500/25"
+                >
+                  <ScanLine className="size-4" aria-hidden="true" />
+                  Scan QR Konfirmasi
+                </button>
+              ) : (
+                <button
+                  data-page-id="pemeriksaan"
+                  disabled={!canStartExam}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-blue-500/30 disabled:cursor-not-allowed disabled:from-gray-300 disabled:to-gray-300 disabled:shadow-none"
+                >
+                  Mulai Pemeriksaan
+                </button>
+              )}
             </div>
           </div>
         </div>
