@@ -3,7 +3,12 @@
  */
 
 import { api } from "./api";
-import type { DokterProfileData, JadwalDokter } from "./types";
+import type {
+  DoctorAnalyticsData,
+  DoctorAnalyticsRange,
+  DokterProfileData,
+  JadwalDokter,
+} from "./types";
 
 export interface ListDokterParams {
   spesialisasi?: string;
@@ -29,4 +34,30 @@ export async function getDokter(id: string): Promise<{
   return api.get<{ dokter: DokterProfileData; jadwal: JadwalDokter[] }>(
     `/dokter/${id}`,
   );
+}
+
+export async function getMyJadwalDokter(): Promise<JadwalDokter[]> {
+  const data = await api.get<{ items: JadwalDokter[] }>("/dokter/me/jadwal");
+  return data.items;
+}
+
+export interface CreateJadwalDokterInput {
+  hari: number;
+  jamMulai: string;
+  jamSelesai: string;
+  kuota: number;
+  isActive?: boolean;
+}
+
+export async function createMyJadwalDokter(
+  input: CreateJadwalDokterInput,
+): Promise<JadwalDokter> {
+  const data = await api.post<{ jadwal: JadwalDokter }>("/dokter/me/jadwal", input);
+  return data.jadwal;
+}
+
+export async function getMyDoctorAnalytics(
+  range: DoctorAnalyticsRange = "month",
+): Promise<DoctorAnalyticsData> {
+  return api.get<DoctorAnalyticsData>(`/dokter/me/analytics?range=${range}`);
 }

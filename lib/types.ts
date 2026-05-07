@@ -151,6 +151,7 @@ export interface DokterProfileData {
 
 export interface JadwalDokter {
   id: string;
+  dokter_id?: string;
   hari: number; // 0=Minggu..6=Sabtu
   jam_mulai: string; // HH:MM:SS
   jam_selesai: string;
@@ -182,4 +183,181 @@ export interface Appointment {
     spesialisasi: string;
     profile: ProfileSummary;
   } | null;
+}
+
+// ── Rekam Medis ──────────────────────────────────────────────────────
+export interface RekamMedisRecord {
+  id: string;
+  pasien_id: string;
+  dokter_id: string;
+  appointment_id: string | null;
+  tanggal: string; // YYYY-MM-DD
+  diagnosa: string;
+  tindakan: string | null;
+  resep: string | null;
+  biaya: number | null;
+  catatan: string | null;
+  created_at: string;
+  updated_at: string;
+  dokter: {
+    id: string;
+    spesialisasi: string;
+    profile: ProfileSummary;
+  } | null;
+  appointment: {
+    id: string;
+    tanggal: string;
+    jam: string;
+    jenis: AppointmentType;
+    status: AppointmentStatus;
+    keluhan: string | null;
+    catatan_dokter: string | null;
+  } | null;
+}
+
+export interface PasienMedicalRecordItem {
+  profile: {
+    id: string;
+    full_name: string;
+    role: "pasien";
+    email: string | null;
+    phone: string | null;
+    avatar_url: string | null;
+  };
+  pasien: PasienProfileData | null;
+  rekamMedis: RekamMedisRecord[];
+  appointments: Appointment[];
+}
+
+// ── Notifikasi ───────────────────────────────────────────────────────
+export type NotifikasiType =
+  | "pengingat"
+  | "konfirmasi"
+  | "pengumuman"
+  | "darurat"
+  | "lainnya";
+
+export interface NotifikasiItem {
+  id: string;
+  user_id: string;
+  type: NotifikasiType;
+  title: string;
+  description: string | null;
+  link: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+// ── Realtime Chat Dokter-Pasien ─────────────────────────────────────
+export interface ChatProfileSummary {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  body: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface ChatConversation {
+  id: string;
+  pasien_id: string;
+  dokter_id: string;
+  appointment_id: string | null;
+  subject: string | null;
+  status: "aktif" | "ditutup";
+  last_message_at: string;
+  created_at: string;
+  updated_at: string;
+  pasien: {
+    id: string;
+    profile: ChatProfileSummary | null;
+  } | null;
+  dokter: {
+    id: string;
+    spesialisasi: string | null;
+    profile: ChatProfileSummary | null;
+  } | null;
+  appointment: {
+    id: string;
+    tanggal: string;
+    jam: string;
+    jenis: AppointmentType;
+    status: AppointmentStatus;
+    keluhan: string | null;
+  } | null;
+  messages: ChatMessage[];
+  unreadCount: number;
+  lastMessage: ChatMessage | null;
+}
+
+// ── Analitik Dokter ─────────────────────────────────────────────────
+export type DoctorAnalyticsRange = "week" | "month" | "year";
+
+export interface DoctorAnalyticsMetric {
+  value: number;
+  previous: number;
+  deltaPct: number;
+}
+
+export interface DoctorAnalyticsBucket {
+  key: string;
+  label: string;
+  value: number;
+  percentage?: number;
+}
+
+export interface DoctorAnalyticsTopDiagnosis {
+  rank: number;
+  diagnosa: string;
+  count: number;
+  revenue: number;
+  latestDate: string;
+  treatmentCount: number;
+}
+
+export interface DoctorAnalyticsInsight {
+  title: string;
+  description: string;
+  tone: "info" | "success" | "warning";
+}
+
+export interface DoctorAnalyticsData {
+  range: DoctorAnalyticsRange;
+  period: {
+    from: string;
+    to: string;
+    previousFrom: string;
+    previousTo: string;
+    days: number;
+  };
+  kpis: {
+    appointments: DoctorAnalyticsMetric;
+    uniquePatients: DoctorAnalyticsMetric;
+    newPatients: DoctorAnalyticsMetric;
+    averageDailyAppointments: DoctorAnalyticsMetric;
+    completionRate: DoctorAnalyticsMetric;
+    attendanceRate: DoctorAnalyticsMetric;
+    emergencyCases: DoctorAnalyticsMetric;
+    revenue: DoctorAnalyticsMetric;
+    medicalRecords: DoctorAnalyticsMetric;
+  };
+  charts: {
+    visitTrend: DoctorAnalyticsBucket[];
+    hourlyDistribution: DoctorAnalyticsBucket[];
+    appointmentTypes: DoctorAnalyticsBucket[];
+    statuses: DoctorAnalyticsBucket[];
+    demographics: {
+      gender: DoctorAnalyticsBucket[];
+      ageGroups: DoctorAnalyticsBucket[];
+    };
+  };
+  topDiagnoses: DoctorAnalyticsTopDiagnosis[];
+  insights: DoctorAnalyticsInsight[];
+  generatedAt: string;
 }

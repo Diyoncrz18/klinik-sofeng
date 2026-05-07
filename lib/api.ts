@@ -13,7 +13,7 @@
 import { session } from "./session";
 import type { ApiErrorBody, LoginResponse } from "./types";
 
-const API_BASE =
+export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
   "http://localhost:4000/api";
 
@@ -42,7 +42,7 @@ export async function refreshAccessToken(): Promise<string | null> {
 
   _refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
+      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: "POST",
         credentials: "include",
       });
@@ -114,7 +114,7 @@ export async function apiFetch<T = unknown>(
   path: string,
   opts: RequestOptions = {},
 ): Promise<T> {
-  const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+  const url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
   const headers = buildHeaders(opts);
 
   const res = await fetch(url, {

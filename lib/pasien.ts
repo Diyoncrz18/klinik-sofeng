@@ -3,10 +3,15 @@
  */
 
 import { api } from "./api";
-import type { JenisKelamin, PasienBundle } from "./types";
+import type { JenisKelamin, PasienBundle, PasienMedicalRecordItem } from "./types";
 
 export async function getPasienMe(): Promise<PasienBundle> {
   return api.get<PasienBundle>("/pasien/me");
+}
+
+export async function listPasienMedicalRecords(): Promise<PasienMedicalRecordItem[]> {
+  const data = await api.get<{ items: PasienMedicalRecordItem[] }>("/pasien");
+  return data.items;
 }
 
 export interface UpdatePasienInput {
