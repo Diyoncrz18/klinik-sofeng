@@ -56,3 +56,5 @@ next-env.d.ts
 
 # Cascade / Windsurf agent skill cache (per-machine, not source code)
 .windsurf/
+.agents/
+.claude/
