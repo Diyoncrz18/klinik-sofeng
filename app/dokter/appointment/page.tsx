@@ -1,3 +1,3 @@
 export default function AppointmentPage() {
-  return null;
+  return <span hidden data-route="dokter-appointment" />;
 }

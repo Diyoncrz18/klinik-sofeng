@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { MessageCircle } from "lucide-react";
 
 import { useAuth } from "@/app/contexts/AuthContext";
 import { getUserDisplayName } from "@/lib/types";
@@ -20,6 +21,7 @@ const PAGE_PATHS: Record<string, string> = {
   "rekam-medis": "/dokter/rekam-medis",
   jadwal:        "/dokter/jadwal",
   antrian:       "/dokter/antrian",
+  chat:          "/dokter/chat",
   notifikasi:    "/dokter/notifikasi",
   analitik:      "/dokter/analitik",
 };
@@ -45,10 +47,13 @@ const MENU_ICON_CLASS =
 interface DoctorSidebarProps {
   /** Jumlah appointment hari ini (badge di menu Appointment). */
   appointmentBadge?: number;
+  /** Jumlah notifikasi belum dibaca. */
+  notificationBadge?: number;
 }
 
 export default function DoctorSidebar({
   appointmentBadge,
+  notificationBadge,
 }: DoctorSidebarProps = {}) {
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -250,6 +255,24 @@ export default function DoctorSidebar({
             <span className="menu-tooltip" aria-hidden="true">Antrian</span>
           </Link>
 
+          {/* Chat Pasien */}
+          <Link
+            href="/dokter/chat"
+            id="nav-chat"
+            className={MENU_ITEM_CLASS}
+            onClick={(e) => { e.preventDefault(); navigate("chat"); }}
+            title="Chat Pasien"
+          >
+            <MessageCircle aria-hidden="true" className={MENU_ICON_CLASS} />
+            <span className="menu-text ml-3 text-sm text-sidebar-text group-hover:text-gray-800 transition-colors flex-1">
+              Chat Pasien
+            </span>
+            <span className="menu-text ml-auto bg-emerald-50 text-emerald-700 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+              Baru
+            </span>
+            <span className="menu-tooltip" aria-hidden="true">Chat Pasien</span>
+          </Link>
+
           {/* Divider: Lainnya */}
           <div className="section-label mt-5 mb-2 px-3" aria-hidden="true">
             <span className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-heading">
@@ -272,15 +295,21 @@ export default function DoctorSidebar({
                 <path d="M10.268 21a2 2 0 0 0 3.464 0" />
                 <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
               </svg>
-              <div className="notification-dot" aria-hidden="true" />
+              {notificationBadge !== undefined && notificationBadge > 0 && (
+                <div className="notification-dot" aria-hidden="true" />
+              )}
             </div>
             <span className="menu-text ml-3 text-sm text-sidebar-text group-hover:text-gray-800 transition-colors flex-1">
               Notifikasi
             </span>
-            <span className="menu-text ml-auto bg-primary-400/20 text-primary-100 text-[11px] font-semibold px-2 py-0.5 rounded-full"
-              aria-label="5 notifikasi baru">
-              5
-            </span>
+            {notificationBadge !== undefined && notificationBadge > 0 && (
+              <span
+                className="menu-text ml-auto bg-primary-400/20 text-primary-100 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                aria-label={`${notificationBadge} notifikasi baru`}
+              >
+                {notificationBadge > 99 ? "99+" : notificationBadge}
+              </span>
+            )}
             <span className="menu-tooltip" aria-hidden="true">Notifikasi</span>
           </Link>
 

@@ -2,9 +2,17 @@
 
 import { QRCodeSVG } from "qrcode.react";
 import { useMemo, useState, type CSSProperties, type MouseEvent } from "react";
+import { MessageCircle } from "lucide-react";
 
+import DoctorAnalyticsPage from "./DoctorAnalyticsPage";
+import DoctorChatPage from "./DoctorChatPage";
+import DoctorMedicalRecordDetailPage from "./DoctorMedicalRecordDetailPage";
+import DoctorMedicalRecordsPage from "./DoctorMedicalRecordsPage";
+import DoctorNotificationsPage from "./DoctorNotificationsPage";
+import DoctorScheduleOptimizationPage from "./DoctorScheduleOptimizationPage";
 import type { DoctorDesignPageId } from "./doctorDesignRouting";
 import type { DokterDashboardData } from "@/lib/hooks/useDokterDashboard";
+import type { DoctorNotificationsData } from "@/lib/hooks/useDoctorNotifications";
 import {
   appointmentTitle,
   shortAppointmentId,
@@ -32,6 +40,7 @@ interface DoctorDashboardMarkupProps {
    * tetap kompatibel mundur dengan caller lama yang belum pass data.
    */
   dashboardData?: DokterDashboardData;
+  notificationsData?: DoctorNotificationsData;
   queueRegistrations?: QueueRegistration[];
 }
 
@@ -523,6 +532,7 @@ export default function DoctorDashboardMarkup({
   todayLabel,
   onDashboardClick,
   dashboardData,
+  notificationsData,
   queueRegistrations = [],
 }: DoctorDashboardMarkupProps) {
   const pageClass = (pageId: string, extra = "") => [
@@ -548,6 +558,7 @@ export default function DoctorDashboardMarkup({
   const activeQueueTime = formatQueueTime(
     activeQueueRegistration?.calledAt ?? activeQueueRegistration?.createdAt,
   );
+  const unreadNotificationCount = notificationsData?.unreadCount ?? 0;
 
   // Helper untuk render angka stat: '—' kalau loading & belum punya data,
   // angka aktual kalau sudah ada.
@@ -559,7 +570,7 @@ export default function DoctorDashboardMarkup({
   return (
     <>
       {/* ==================== MAIN CONTENT ==================== */}
-    <main id="main-content" className="min-h-screen" style={mainContentStyle} onClick={onDashboardClick}>
+    <main id="main-content" className="flex min-h-screen flex-col" style={mainContentStyle} onClick={onDashboardClick}>
       {/* Top Bar */}
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-lg border-b border-gray-200/60 h-16 flex items-center px-6">
         {/* Mobile Menu Button */}
@@ -585,10 +596,22 @@ export default function DoctorDashboardMarkup({
               />
             </div>
           </div>
+          {/* Chat Pasien */}
+          <button data-page-id="chat" className="inline-flex items-center gap-2 rounded-lg border border-primary-100 bg-white px-3 py-2.5 text-sm font-semibold text-primary-700 shadow-sm transition-colors hover:bg-primary-50 focus:outline-none focus:ring-2 focus:ring-primary-500/30" title="Chat Pasien">
+            <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Chat Pasien</span>
+          </button>
           {/* Notification Bell */}
           <button data-page-id="notifikasi" className="relative p-2.5 rounded-lg bg-gray-50 hover:bg-rose-50 text-gray-500 hover:text-rose-600 border border-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-rose-500/30 tooltip" title="Notifikasi Sistem">
             <svg xmlns="http://www.w3.org/2000/svg" width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" data-lucide="bell" aria-hidden="true" className="lucide lucide-bell w-5 h-5"><path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /></svg>
-            <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse" />
+            {unreadNotificationCount > 0 && (
+              <span
+                className="absolute -right-1 -top-1 min-w-5 rounded-full border-2 border-white bg-rose-500 px-1 text-center text-[10px] font-black leading-4 text-white"
+                aria-label={`${unreadNotificationCount} notifikasi baru`}
+              >
+                {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+              </span>
+            )}
           </button>
           {/* Simple Date Display */}
           <div className="hidden sm:flex items-center gap-2.5 text-sm text-gray-800 font-bold tracking-wide">
@@ -598,7 +621,7 @@ export default function DoctorDashboardMarkup({
         </div>
       </header>
       {/* Page Content Area */}
-      <div className="p-6" id="content-area">
+      <div className="flex flex-1 flex-col p-6 overflow-hidden" id="content-area">
         {/* Dashboard Content (default) */}
         <div id="page-dashboard" className={pageClass("dashboard", "")}>
           {/* Stats Cards */}
@@ -643,7 +666,13 @@ export default function DoctorDashboardMarkup({
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
                 <h3 className="font-semibold text-gray-800 text-sm">Appointment Berikutnya</h3>
-                <a href="#appointment" className="text-xs text-primary-600 hover:text-primary-700 font-medium" data-page-id="appointment">Lihat Semua →</a>
+                <div className="flex items-center gap-2">
+                  <button data-page-id="chat" className="inline-flex items-center gap-1.5 rounded-lg border border-primary-100 bg-primary-50 px-3 py-1.5 text-xs font-bold text-primary-700 transition-colors hover:bg-white">
+                    <MessageCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                    Chat Pasien
+                  </button>
+                  <a href="#appointment" className="text-xs text-primary-600 hover:text-primary-700 font-medium" data-page-id="appointment">Lihat Semua →</a>
+                </div>
               </div>
               <div className="divide-y divide-gray-50">
                 {errorDashboard ? (
@@ -1286,9 +1315,12 @@ export default function DoctorDashboardMarkup({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 mb-2">Durasi Keluhan</label>
-                      <select className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-medium text-gray-700 focus:outline-none focus:border-primary-500">
+                      <select
+                        defaultValue="1-4 Minggu"
+                        className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm font-medium text-gray-700 focus:outline-none focus:border-primary-500"
+                      >
                         <option>&gt; 1 Bulan</option>
-                        <option selected>1-4 Minggu</option>
+                        <option>1-4 Minggu</option>
                         <option>1-7 Hari</option>
                         <option>Akut (&lt; 24 Jam)</option>
                       </select>
@@ -1353,7 +1385,12 @@ export default function DoctorDashboardMarkup({
             </form>
           </div>
         </div>
+        <div id="page-chat" className={pageClass("chat", " h-full overflow-hidden")}>
+          {activePage === "chat" && <DoctorChatPage />}
+        </div>
         <div id="page-rekam-medis" className={pageClass("rekam-medis", " h-full")}>
+          {activePage === "rekam-medis" && <DoctorMedicalRecordsPage dashboardData={dashboardData} />}
+          <div className="hidden" aria-hidden="true">
           {/* ── Stat Summary Cards ── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
             {[
@@ -1538,9 +1575,12 @@ export default function DoctorDashboardMarkup({
               </div>
             </div>
           </div>
+          </div>
         </div>
         {/* PAGE DETAIL REKAM MEDIS */}
         <div id="page-detail-rekam-medis" className={pageClass("detail-rekam-medis", " h-full overflow-y-auto hide-scrollbar")}>
+          {activePage === "detail-rekam-medis" && <DoctorMedicalRecordDetailPage dashboardData={dashboardData} />}
+          <div className="hidden" aria-hidden="true">
           {/* Sticky topbar */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-5 sticky top-0 z-20 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
@@ -1682,9 +1722,12 @@ export default function DoctorDashboardMarkup({
               </aside>
             </div>
           </div>
+          </div>
         </div>
         {/* PAGE OPTIMASI JADWAL */}
         <div id="page-jadwal" className={pageClass("jadwal", " h-full")}>
+          {activePage === "jadwal" && <DoctorScheduleOptimizationPage dashboardData={dashboardData} />}
+          <div className="hidden" aria-hidden="true">
           <div className="flex flex-col lg:flex-row gap-6 h-full">
             {/* Bagian Kiri: Insight & Rekomendasi Jadwal */}
             <div className="w-full lg:w-1/3 xl:w-1/4 flex flex-col gap-4">
@@ -1935,9 +1978,12 @@ export default function DoctorDashboardMarkup({
               </div>
             </div>
           </div>
+          </div>
         </div>
         {/* PAGE TAMBAH JADWAL BARU */}
         <div id="page-tambah-jadwal" className={pageClass("tambah-jadwal", " h-full overflow-y-auto")} style={{scrollbarWidth: 'thin', paddingBottom: '2rem'}}>
+          {activePage === "tambah-jadwal" && <DoctorScheduleOptimizationPage dashboardData={dashboardData} />}
+          <div className="hidden" aria-hidden="true">
           {/* Top Action Bar */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
             <button data-page-id="jadwal" className="px-4 py-2 bg-white border border-gray-200 text-gray-600 hover:text-indigo-600 hover:border-indigo-200 hover:bg-indigo-50 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 shadow-sm">
@@ -2079,6 +2125,7 @@ export default function DoctorDashboardMarkup({
                 </div>
               </div>
             </div>
+          </div>
           </div>
         </div>
         {/* PAGE MANAJEMEN ANTRIAN (Clean View) */}
@@ -2271,6 +2318,10 @@ export default function DoctorDashboardMarkup({
         </div>
         {/* PAGE NOTIFIKASI (Notification Center) */}
         <div id="page-notifikasi" className={pageClass("notifikasi", " h-full flex flex-col")}>
+          {activePage === "notifikasi" && notificationsData && (
+            <DoctorNotificationsPage notificationsData={notificationsData} />
+          )}
+          <div className="hidden" aria-hidden="true">
           {/* Header */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6 flex flex-col sm:flex-row justify-between items-center gap-4 flex-shrink-0">
             <div className="flex items-center gap-3">
@@ -2410,6 +2461,7 @@ export default function DoctorDashboardMarkup({
                   Notifikasi (8)</button>
               </div>
             </div>
+          </div>
           </div>
         </div>
         {/* PAGE DETAIL NOTIFIKASI */}
@@ -2645,6 +2697,8 @@ export default function DoctorDashboardMarkup({
         </div>
         {/* PAGE ANALITIK (Analytics Dashboard) */}
         <div id="page-analitik" className={pageClass("analitik", " h-full overflow-y-auto")} style={{scrollbarWidth: 'thin'}}>
+          {activePage === "analitik" && <DoctorAnalyticsPage />}
+          <div className="hidden" aria-hidden="true">
           {/* Header & Action Bar */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-3">
@@ -2889,6 +2943,7 @@ export default function DoctorDashboardMarkup({
                 </tbody>
               </table>
             </div>
+          </div>
           </div>
         </div>
       </div>

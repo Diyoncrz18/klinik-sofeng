@@ -17,6 +17,7 @@ import {
 import { useAuth } from "@/app/contexts/AuthContext";
 import { getUserDisplayName } from "@/lib/types";
 import { useDokterDashboard } from "@/lib/hooks/useDokterDashboard";
+import { useDoctorNotifications } from "@/lib/hooks/useDoctorNotifications";
 import {
   QUEUE_REGISTRATION_EVENT,
   QUEUE_REGISTRATIONS_STORAGE_KEY,
@@ -44,6 +45,7 @@ const PAGE_TITLES: Record<DoctorDesignPageId, { title: string; subtitle: string 
   jadwal: { title: "Optimasi Jadwal", subtitle: "Smart scheduling engine" },
   "tambah-jadwal": { title: "Buat Jadwal Baru", subtitle: "Booking pasien & manajemen waktu klinis" },
   antrian: { title: "Manajemen Antrian", subtitle: "Real-time queue management" },
+  chat: { title: "Chat Pasien", subtitle: "Konsultasi online dan follow-up pasien" },
   notifikasi: { title: "Notifikasi", subtitle: "Pemberitahuan terbaru" },
   "detail-notifikasi": { title: "Detail Notifikasi", subtitle: "Tinjauan mendalam notifikasi klinis dan riwayat medis" },
   "detail-booking-vvip": { title: "Verifikasi Booking", subtitle: "Permintaan jadwal eksklusif pasien VVIP" },
@@ -94,6 +96,7 @@ export default function DoctorDesignShell({
   const pathname = usePathname();
   const { user } = useAuth();
   const dashboardData = useDokterDashboard();
+  const notificationsData = useDoctorNotifications();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
@@ -377,6 +380,7 @@ export default function DoctorDesignShell({
     <>
       <DoctorSidebar
         appointmentBadge={dashboardData.stats.activeAppointmentCount}
+        notificationBadge={notificationsData.unreadCount}
       />
       <DoctorDashboardMarkup
         activePage={activePage}
@@ -385,6 +389,7 @@ export default function DoctorDesignShell({
         todayLabel={todayLabel}
         onDashboardClick={handleDashboardClick}
         dashboardData={dashboardData}
+        notificationsData={notificationsData}
         queueRegistrations={queueRegistrations}
       />
     </>
