@@ -27,6 +27,7 @@ import DoctorMedicalRecordsPage from "./DoctorMedicalRecordsPage";
 import DoctorNotificationsPage from "./DoctorNotificationsPage";
 import DoctorScheduleOptimizationPage from "./DoctorScheduleOptimizationPage";
 import type { DoctorDesignPageId } from "./doctorDesignRouting";
+import { ApiError } from "@/lib/api";
 import { checkInAppointment, completeAppointment } from "@/lib/appointments";
 import type { DokterDashboardData } from "@/lib/hooks/useDokterDashboard";
 import type { DoctorNotificationsData } from "@/lib/hooks/useDoctorNotifications";
@@ -239,7 +240,34 @@ function scanErrorMessage(error: unknown): string {
   return "Gagal membuka kamera.";
 }
 
+function firstApiDetailMessage(details: unknown): string | null {
+  if (!details || typeof details !== "object") return null;
+
+  const detailRecord = details as {
+    fieldErrors?: Record<string, unknown>;
+    formErrors?: unknown;
+  };
+
+  if (Array.isArray(detailRecord.formErrors)) {
+    const message = detailRecord.formErrors.find((item) => typeof item === "string");
+    if (typeof message === "string") return message;
+  }
+
+  if (detailRecord.fieldErrors && typeof detailRecord.fieldErrors === "object") {
+    for (const messages of Object.values(detailRecord.fieldErrors)) {
+      if (!Array.isArray(messages)) continue;
+      const message = messages.find((item) => typeof item === "string");
+      if (typeof message === "string") return message;
+    }
+  }
+
+  return null;
+}
+
 function confirmationErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    return firstApiDetailMessage(error.details) ?? error.message;
+  }
   if (error instanceof Error) return error.message;
   return "Gagal mengonfirmasi appointment.";
 }
@@ -543,6 +571,11 @@ function formString(form: FormData, key: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function focusFormField(form: HTMLFormElement, name: string) {
+  const field = form.elements.namedItem(name);
+  if (field instanceof HTMLElement) field.focus();
+}
+
 function DoctorExaminationPage({
   appointment,
   loading,
@@ -565,21 +598,43 @@ function DoctorExaminationPage({
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const biayaRaw = formString(form, "biaya");
+    const diagnosa = formString(form, "diagnosa");
+    const tindakan = formString(form, "tindakan");
+    const biaya = biayaRaw ? Number(biayaRaw) : null;
     const perluKontrol = form.get("perluKontrol") === "on";
 
-    setSaving(true);
     setErrorMsg(null);
+
+    if (!diagnosa) {
+      setErrorMsg("Diagnosis wajib diisi.");
+      focusFormField(formElement, "diagnosa");
+      return;
+    }
+
+    if (!tindakan) {
+      setErrorMsg("Tindakan wajib diisi.");
+      focusFormField(formElement, "tindakan");
+      return;
+    }
+
+    if (biaya !== null && (!Number.isFinite(biaya) || biaya < 0)) {
+      setErrorMsg("Biaya harus berupa angka dan tidak boleh negatif.");
+      focusFormField(formElement, "biaya");
+      return;
+    }
+
+    setSaving(true);
 
     try {
       await completeAppointment(appointment.id, {
         keluhan: formString(form, "keluhan") || null,
         areaGigi: formString(form, "areaGigi") || null,
-        diagnosa: formString(form, "diagnosa"),
+        diagnosa,
         temuan: formString(form, "temuan") || null,
-        tindakan: formString(form, "tindakan"),
+        tindakan,
         resep: formString(form, "resep") || null,
         catatan: formString(form, "catatan") || null,
-        biaya: biayaRaw ? Number(biayaRaw) : null,
+        biaya,
         perluKontrol,
       });
       formElement.reset();
