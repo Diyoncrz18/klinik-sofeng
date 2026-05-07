@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 
 import { getAppointment } from "@/lib/appointments";
 import { appointmentTitle, dokterFullName, dokterSpesialisasi } from "@/lib/appointment-display";
@@ -37,6 +38,12 @@ function formatJamShort(hhmmss: string): string {
 function shortApptId(id: string): string {
   // Tampilkan 8 char pertama uuid sebagai "APT-XXXXXXXX".
   return `APT-${id.slice(0, 8).toUpperCase()}`;
+}
+
+function ticketQrValue(appt: Appointment): string {
+  const path = `/pasien/jadwal/${appt.id}/tiket`;
+  if (typeof window === "undefined") return path;
+  return new URL(path, window.location.origin).toString();
 }
 
 function statusBadge(appt: Appointment): { label: string; bg: string } {
@@ -80,6 +87,8 @@ export default function FormLihatTiket({ appointmentId, onBack }: Props) {
 
   const badge = appt ? statusBadge(appt) : { label: "Memuat…", bg: "rgba(255,255,255,0.2)" };
   const pasienName = appt?.pasien?.profile.full_name ?? "—";
+  const qrValue = appt ? ticketQrValue(appt) : null;
+  const ticketCode = appt ? shortApptId(appt.id) : "—";
   return (
     <div style={{ paddingBottom: 24, animation: "pasienFadeIn 0.2s ease-out" }}>
       
@@ -192,26 +201,43 @@ export default function FormLihatTiket({ appointmentId, onBack }: Props) {
               <div style={{ width: 24, height: 24, background: "#f7f9fb", borderRadius: "50%", position: "absolute", top: "50%", right: -12, transform: "translateY(-50%)", borderLeft: "1px solid rgba(115,199,227,0.12)" }} />
             </div>
 
-            {/* QR Code Placeholder */}
+            {/* QR Code */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
               <p style={{ fontSize: 11, color: "#6b7280", fontWeight: 600, marginBottom: 12 }}>
                 Scan QR saat kedatangan di resepsionis
               </p>
-              <div style={{ 
-                width: 140, height: 140, 
-                border: "2px solid #111827", borderRadius: 12,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: `
-                  linear-gradient(45deg, #111827 25%, transparent 25%, transparent 75%, #111827 75%, #111827),
-                  linear-gradient(45deg, #111827 25%, transparent 25%, transparent 75%, #111827 75%, #111827)
-                `,
-                backgroundSize: "20px 20px",
-                backgroundPosition: "0 0, 10px 10px",
-              }}>
-                <div style={{ width: 50, height: 50, background: "white", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8 }}>
-                  <span style={{ fontSize: 24 }}>🦷</span>
-                </div>
+              <div
+                style={{
+                  width: 156,
+                  height: 156,
+                  border: "1.5px solid #e5e7eb",
+                  borderRadius: 14,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "#fff",
+                  boxShadow: "0 8px 20px rgba(15,23,42,0.08)",
+                }}
+              >
+                {qrValue ? (
+                  <QRCodeSVG
+                    value={qrValue}
+                    size={132}
+                    level="M"
+                    marginSize={2}
+                    bgColor="#ffffff"
+                    fgColor="#111827"
+                    title={`QR Tiket ${ticketCode}`}
+                  />
+                ) : (
+                  <span style={{ fontSize: 11, color: "#9ca3af", fontWeight: 700 }}>
+                    Memuat QR
+                  </span>
+                )}
               </div>
+              <p style={{ fontSize: 10, color: "#6b7280", fontWeight: 700, marginTop: 10 }}>
+                {ticketCode}
+              </p>
             </div>
             
           </div>

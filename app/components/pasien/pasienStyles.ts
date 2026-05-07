@@ -76,8 +76,6 @@ export const PASIEN_STYLES = `
   *, *::before, *::after {
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
-    margin: 0;
-    padding: 0;
   }
 
   /* ── Outer Shell (Desktop Background) ────────── */
@@ -130,6 +128,21 @@ export const PASIEN_STYLES = `
   }
   .pasien-main::-webkit-scrollbar { display: none; }
   .pasien-main { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Chat mode: ChatRoomView fills the main area without padding */
+  .pasien-main.chat-mode {
+    padding: 0 !important;
+    overflow: hidden !important;
+    display: flex;
+    flex-direction: column;
+  }
+  .pasien-main.chat-mode .page-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: none !important;
+  }
 
   /* ── Bottom Nav ───────────────────────────────── */
   .pasien-bottom-nav {
